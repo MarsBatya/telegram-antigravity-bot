@@ -61,7 +61,9 @@ def test_session_persistence(tmp_path):
     # Set data and save
     stream_runner.active_conversations = {123: "conv-abc"}
     stream_runner.active_workspaces = {123: "/path/to/ws"}
-    stream_runner.active_settings = {123: {"model": "m1", "effort": "low", "mode": "plan"}}
+    stream_runner.active_settings = {
+        123: {"model": "m1", "effort": "low", "mode": "plan"},
+    }
     stream_runner.save_persistent_sessions(session_file)
 
     # Reload from file
@@ -90,7 +92,9 @@ def test_chat_settings_and_workspace(tmp_path):
         # Default setting
         chat_id = 9999
         assert stream_runner.get_chat_setting(chat_id, "model") == config.DEFAULT_MODEL
-        assert stream_runner.get_chat_setting(chat_id, "effort") == config.DEFAULT_EFFORT
+        assert (
+            stream_runner.get_chat_setting(chat_id, "effort") == config.DEFAULT_EFFORT
+        )
         assert stream_runner.get_chat_setting(chat_id, "mode") == config.DEFAULT_MODE
 
         # Set setting
@@ -99,8 +103,11 @@ def test_chat_settings_and_workspace(tmp_path):
 
         # Workspace
         assert stream_runner.get_chat_workspace(chat_id) == config.DEFAULT_WORKSPACE
-        stream_runner.set_chat_workspace(chat_id, "/tmp/test-ws")
-        assert stream_runner.get_chat_workspace(chat_id) == os.path.abspath("/tmp/test-ws")
+        test_ws = str(tmp_path / "test-ws")
+        stream_runner.set_chat_workspace(chat_id, test_ws)
+        assert stream_runner.get_chat_workspace(chat_id) == os.path.abspath(
+            test_ws,
+        )
 
 
 def test_chat_lock():
@@ -136,7 +143,9 @@ def test_calculate_session_tokens(tmp_path):
     assert total == 400
 
     # Non-existent conversation
-    assert stream_runner.calculate_session_tokens("non-existent", brain_dir=brain_dir) == 0
+    assert (
+        stream_runner.calculate_session_tokens("non-existent", brain_dir=brain_dir) == 0
+    )
 
 
 def test_get_recent_sessions(tmp_path):
@@ -161,9 +170,9 @@ def test_get_recent_sessions(tmp_path):
                     "type": "USER_INPUT",
                     "content": "<USER_REQUEST>\nBuild a web scraper\n</USER_REQUEST>",
                     "created_at": "2026-03-01T12:00:00Z",
-                }
+                },
             )
-            + "\n"
+            + "\n",
         )
 
     # c2 has plain text
@@ -174,9 +183,9 @@ def test_get_recent_sessions(tmp_path):
                     "type": "USER_INPUT",
                     "content": "Fix database connection pool bug",
                     "created_at": "2026-03-02T15:30:00Z",
-                }
+                },
             )
-            + "\n"
+            + "\n",
         )
 
     sessions = stream_runner.get_recent_sessions(limit=5, brain_dir=brain_dir)
@@ -194,16 +203,29 @@ def test_rename_and_delete_session(tmp_path):
     transcript_file = log_dir / "transcript.jsonl"
 
     with open(transcript_file, "w", encoding="utf-8") as f:
-        f.write(json.dumps({"type": "USER_INPUT", "content": "<USER_REQUEST>Old Title</USER_REQUEST>"}) + "\n")
+        f.write(
+            json.dumps(
+                {
+                    "type": "USER_INPUT",
+                    "content": "<USER_REQUEST>Old Title</USER_REQUEST>",
+                },
+            )
+            + "\n",
+        )
 
     # Rename existing
-    assert stream_runner.rename_session(conv_id, "New Title", brain_dir=brain_dir) is True
+    assert (
+        stream_runner.rename_session(conv_id, "New Title", brain_dir=brain_dir) is True
+    )
     with open(transcript_file, "r", encoding="utf-8") as f:
         content = f.read()
         assert "New Title" in content
 
     # Rename non-existing
-    assert stream_runner.rename_session("missing", "New Title", brain_dir=brain_dir) is False
+    assert (
+        stream_runner.rename_session("missing", "New Title", brain_dir=brain_dir)
+        is False
+    )
 
     # Delete existing
     assert stream_runner.delete_session(conv_id, brain_dir=brain_dir) is True
@@ -221,10 +243,16 @@ def test_get_full_session_history_formatted(tmp_path):
     transcript_file = log_dir / "transcript.jsonl"
 
     turns_data = [
-        {"type": "USER_INPUT", "content": "<USER_REQUEST>What is Python?</USER_REQUEST>"},
+        {
+            "type": "USER_INPUT",
+            "content": "<USER_REQUEST>What is Python?</USER_REQUEST>",
+        },
         {"type": "PLANNER_RESPONSE", "content": "Python is a programming language."},
         {"type": "PLANNER_RESPONSE", "content": "It is widely used."},
-        {"type": "USER_INPUT", "content": "<USER_REQUEST>How do I test?</USER_REQUEST>"},
+        {
+            "type": "USER_INPUT",
+            "content": "<USER_REQUEST>How do I test?</USER_REQUEST>",
+        },
         {"type": "PLANNER_RESPONSE", "content": "Use pytest!"},
     ]
 
@@ -232,7 +260,11 @@ def test_get_full_session_history_formatted(tmp_path):
         for item in turns_data:
             f.write(json.dumps(item) + "\n")
 
-    history = stream_runner.get_full_session_history_formatted(conv_id, max_turns=5, brain_dir=brain_dir)
+    history = stream_runner.get_full_session_history_formatted(
+        conv_id,
+        max_turns=5,
+        brain_dir=brain_dir,
+    )
     assert len(history) == 2
     assert history[0]["user"] == "What is Python?"
     assert "Python is a programming language.\n\nIt is widely used." in history[0]["ai"]
@@ -240,7 +272,11 @@ def test_get_full_session_history_formatted(tmp_path):
     assert history[1]["ai"] == "Use pytest!"
 
     # Respects max_turns
-    short_history = stream_runner.get_full_session_history_formatted(conv_id, max_turns=1, brain_dir=brain_dir)
+    short_history = stream_runner.get_full_session_history_formatted(
+        conv_id,
+        max_turns=1,
+        brain_dir=brain_dir,
+    )
     assert len(short_history) == 1
     assert short_history[0]["user"] == "How do I test?"
 
@@ -267,7 +303,10 @@ def test_cancel_chat_process():
 
     # Mock process running
     mock_proc_running = MagicMock()
-    mock_proc_running.poll.side_effect = [None, 0]  # First poll running, second terminated
+    mock_proc_running.poll.side_effect = [
+        None,
+        0,
+    ]  # First poll running, second terminated
     stream_runner.active_processes[222] = mock_proc_running
     assert stream_runner.cancel_chat_process(222) is True
     mock_proc_running.terminate.assert_called_once()
@@ -295,7 +334,10 @@ def test_fetch_available_models_live(tmp_path):
     token_file = str(tmp_path / "oauth-token.json")
 
     # Missing file
-    assert stream_runner.fetch_available_models_live(token_file=str(tmp_path / "missing")) == []
+    assert (
+        stream_runner.fetch_available_models_live(token_file=str(tmp_path / "missing"))
+        == []
+    )
 
     # File without access token
     with open(token_file, "w", encoding="utf-8") as f:
@@ -310,7 +352,7 @@ def test_fetch_available_models_live(tmp_path):
         "models": {
             "model-b": {"displayName": "Model Beta", "recommended": False},
             "model-a": {"displayName": "Model Alpha", "recommended": True},
-        }
+        },
     }
 
     mock_resp = MagicMock()
@@ -330,7 +372,9 @@ def test_fetch_live_user_quota_summary(tmp_path):
     token_file = str(tmp_path / "oauth-token.json")
 
     # Missing file
-    res = stream_runner.fetch_live_user_quota_summary(token_file=str(tmp_path / "missing"))
+    res = stream_runner.fetch_live_user_quota_summary(
+        token_file=str(tmp_path / "missing"),
+    )
     assert "OAuth token file not found" in res
 
     # Missing access token
@@ -344,7 +388,10 @@ def test_fetch_live_user_quota_summary(tmp_path):
     fake_jwt = "header." + base64.b64encode(payload).decode("utf-8") + ".sig"
 
     with open(token_file, "w", encoding="utf-8") as f:
-        json.dump({"token": {"access_token": "ya29.mock_token"}, "id_token": fake_jwt}, f)
+        json.dump(
+            {"token": {"access_token": "ya29.mock_token"}, "id_token": fake_jwt},
+            f,
+        )
 
     fake_quota_data = {
         "groups": [
@@ -355,7 +402,9 @@ def test_fetch_live_user_quota_summary(tmp_path):
                     {
                         "displayName": "Pro Requests",
                         "remainingFraction": 0.75,
-                        "resetTime": (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat(),
+                        "resetTime": (
+                            datetime.now(timezone.utc) + timedelta(hours=2)
+                        ).isoformat(),
                         "description": "Per day quota",
                     },
                     {
@@ -364,8 +413,8 @@ def test_fetch_live_user_quota_summary(tmp_path):
                         "description": "Not available",
                     },
                 ],
-            }
-        ]
+            },
+        ],
     }
 
     mock_resp = MagicMock()
@@ -373,7 +422,9 @@ def test_fetch_live_user_quota_summary(tmp_path):
     mock_resp.__enter__.return_value = mock_resp
 
     with patch("urllib.request.urlopen", return_value=mock_resp):
-        quota_summary = stream_runner.fetch_live_user_quota_summary(token_file=token_file)
+        quota_summary = stream_runner.fetch_live_user_quota_summary(
+            token_file=token_file,
+        )
         assert "developer@example.com" in quota_summary
         assert "GEMINI MODELS" in quota_summary
         assert "Pro Requests" in quota_summary
@@ -393,7 +444,7 @@ def test_run_antigravity_stream_streaming_events(tmp_path):
     agy_mock = str(tmp_path / "agy")
     with open(agy_mock, "w") as f:
         f.write("#!/bin/sh\nexit 0\n")
-    os.chmod(agy_mock, 0o755)
+    os.chmod(agy_mock, 0o755)  # noqa: S103
 
     stream_lines = [
         json.dumps({"event": "init", "conversation_id": "conv-stream-100"}),
@@ -405,7 +456,7 @@ def test_run_antigravity_stream_streaming_events(tmp_path):
                     "text_delta": "Hello from ",
                     "usage": {"total_tokens": 50},
                 },
-            }
+            },
         ),
         json.dumps(
             {
@@ -414,21 +465,29 @@ def test_run_antigravity_stream_streaming_events(tmp_path):
                     "step_type": "tool_use",
                     "tool_call": {
                         "name": "view_file",
-                        "args": {"AbsolutePath": "/project/file.py", "toolAction": "Reading code"},
+                        "args": {
+                            "AbsolutePath": "/project/file.py",
+                            "toolAction": "Reading code",
+                        },
                     },
                 },
-            }
+            },
         ),
         json.dumps(
             {
                 "event": "result",
-                "result": {"response": "Hello from Antigravity!", "usage": {"total_tokens": 120}},
-            }
+                "result": {
+                    "response": "Hello from Antigravity!",
+                    "usage": {"total_tokens": 120},
+                },
+            },
         ),
     ]
 
     mock_process = MagicMock()
-    mock_process.stdout.readline.side_effect = [line + "\n" for line in stream_lines] + [""]
+    mock_process.stdout.readline.side_effect = [
+        line + "\n" for line in stream_lines
+    ] + [""]
     mock_process.wait.return_value = 0
 
     progress_messages = []
@@ -440,7 +499,10 @@ def test_run_antigravity_stream_streaming_events(tmp_path):
         with patch("subprocess.Popen", return_value=mock_process):
             with patch.object(stream_runner, "save_persistent_sessions"):
                 resp, usage, files = stream_runner.run_antigravity_stream(
-                    "Say hello", 9988, workspace_dir=str(tmp_path), progress_callback=on_progress
+                    "Say hello",
+                    9988,
+                    workspace_dir=str(tmp_path),
+                    progress_callback=on_progress,
                 )
 
                 assert resp == "Hello from Antigravity!"

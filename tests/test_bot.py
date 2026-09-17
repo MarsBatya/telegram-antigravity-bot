@@ -38,17 +38,17 @@ def make_mock_callback(chat_id=12345, user_id=12345, data="test_data"):
 
 def test_path_mapper():
     pm = PathMapper()
-    p1 = pm.encode("/tmp/folder_a")
-    p2 = pm.encode("/tmp/folder_b")
+    p1 = pm.encode("/home/user/folder_a")
+    p2 = pm.encode("/home/user/folder_b")
     assert p1 == "p1"
     assert p2 == "p2"
 
     # Same path returns same token
-    assert pm.encode("/tmp/folder_a") == "p1"
+    assert pm.encode("/home/user/folder_a") == "p1"
 
     # Decode
-    assert pm.decode("p1") == os.path.abspath("/tmp/folder_a")
-    assert pm.decode("p2") == os.path.abspath("/tmp/folder_b")
+    assert pm.decode("p1") == os.path.abspath("/home/user/folder_a")
+    assert pm.decode("p2") == os.path.abspath("/home/user/folder_b")
     assert pm.decode("p999") is None
 
 
@@ -82,7 +82,9 @@ def test_check_auth_decorator():
             dummy_handler(msg)
             assert not handler_called
             mock_reply.assert_called_once()
-            assert "Your Telegram ID is: <code>12345</code>" in mock_reply.call_args[0][1]
+            assert (
+                "Your Telegram ID is: <code>12345</code>" in mock_reply.call_args[0][1]
+            )
 
     # 2. Unauthorized user
     with patch.object(config, "ALLOWED_USER_IDS", [99999]):
@@ -126,7 +128,12 @@ def test_check_auth_callback_decorator():
 def test_send_long_message_short():
     with patch.object(bot.bot, "send_message") as mock_send:
         bot.send_long_message(123, "short text")
-        mock_send.assert_called_once_with(123, "short text", parse_mode="HTML", reply_markup=None)
+        mock_send.assert_called_once_with(
+            123,
+            "short text",
+            parse_mode="HTML",
+            reply_markup=None,
+        )
 
 
 def test_send_long_message_empty():
@@ -209,12 +216,18 @@ def test_command_model_picker_and_callback():
         # Set model callback
         with patch.object(bot.bot, "answer_callback_query") as mock_ans:
             with patch.object(bot.bot, "edit_message_text") as mock_edit:
-                call = make_mock_callback(user_id=12345, data="set_model:claude-sonnet-4-6")
+                call = make_mock_callback(
+                    user_id=12345,
+                    data="set_model:claude-sonnet-4-6",
+                )
                 bot.handle_set_model_callback(call)
                 mock_ans.assert_called_once()
                 mock_edit.assert_called_once()
                 assert "claude-sonnet-4-6" in mock_edit.call_args[0][0]
-                assert bot.agent_runner.get_chat_setting(12345, "model") == "claude-sonnet-4-6"
+                assert (
+                    bot.agent_runner.get_chat_setting(12345, "model")
+                    == "claude-sonnet-4-6"
+                )
 
 
 def test_command_effort_picker_and_callback():
@@ -264,7 +277,9 @@ def test_command_workspace_and_callback(tmp_path):
             bot.change_workspace(msg)
             mock_reply.assert_called_once()
             assert new_dir in mock_reply.call_args[0][1]
-            assert bot.agent_runner.get_chat_workspace(12345) == os.path.abspath(new_dir)
+            assert bot.agent_runner.get_chat_workspace(12345) == os.path.abspath(
+                new_dir,
+            )
 
         # /workspace without argument shows picker
         with patch.object(bot, "reply_safe") as mock_reply:
@@ -292,7 +307,11 @@ def test_command_tree_explorer(tmp_path):
     sample_file.write_text("hello world")
 
     with patch.object(config, "ALLOWED_USER_IDS", [12345]):
-        with patch.object(bot.agent_runner, "get_chat_workspace", return_value=str(tmp_path)):
+        with patch.object(
+            bot.agent_runner,
+            "get_chat_workspace",
+            return_value=str(tmp_path),
+        ):
             with patch.object(bot, "reply_safe") as mock_reply:
                 msg = make_mock_message(user_id=12345, text="/tree")
                 bot.show_tree_explorer(msg)
@@ -315,12 +334,19 @@ def test_command_cancel_and_stop():
                 msg = make_mock_message(user_id=12345, text="/cancel")
                 bot.handle_cancel_command(msg)
                 mock_reply.assert_called_once()
-                assert "No AI execution process is currently running" in mock_reply.call_args[0][1]
+                assert (
+                    "No AI execution process is currently running"
+                    in mock_reply.call_args[0][1]
+                )
 
 
 def test_command_logs():
     with patch.object(config, "ALLOWED_USER_IDS", [12345]):
-        with patch.object(bot.agent_runner, "fetch_bot_logs", return_value="log line 1\nlog line 2"):
+        with patch.object(
+            bot.agent_runner,
+            "fetch_bot_logs",
+            return_value="log line 1\nlog line 2",
+        ):
             with patch.object(bot, "send_long_message") as mock_send:
                 msg = make_mock_message(user_id=12345, text="/logs")
                 bot.show_bot_logs(msg)
@@ -336,12 +362,18 @@ def test_command_status_and_usage():
             mock_reply.assert_called_once()
             assert "Server & AI Engine Status" in mock_reply.call_args[0][1]
 
-        with patch.object(bot.agent_runner, "fetch_live_user_quota_summary", return_value="Quota Info"):
+        with patch.object(
+            bot.agent_runner,
+            "fetch_live_user_quota_summary",
+            return_value="Quota Info",
+        ):
             with patch.object(bot, "reply_safe") as mock_reply:
                 msg = make_mock_message(user_id=12345, text="/usage")
                 bot.send_usage(msg)
                 mock_reply.assert_called_once()
-                assert "Active Conversation Session Capacity" in mock_reply.call_args[0][1]
+                assert (
+                    "Active Conversation Session Capacity" in mock_reply.call_args[0][1]
+                )
 
 
 def test_command_new_session():
@@ -406,7 +438,10 @@ def test_command_smash_goal_plan():
 def test_handle_text_prompt():
     with patch.object(config, "ALLOWED_USER_IDS", [12345]):
         with patch.object(bot, "process_agent_prompt") as mock_proc:
-            msg = make_mock_message(user_id=12345, text="Refactor the authentication module")
+            msg = make_mock_message(
+                user_id=12345,
+                text="Refactor the authentication module",
+            )
             bot.handle_text_prompt(msg)
             mock_proc.assert_called_once_with(msg, "Refactor the authentication module")
 
@@ -444,11 +479,17 @@ def test_show_session_picker_and_history():
 
         # Populated sessions
         sessions = [{"id": "s1", "title": "Session 1", "date": "10 Mar 12:00"}]
-        with patch.object(bot.agent_runner, "get_recent_sessions", return_value=sessions):
+        with patch.object(
+            bot.agent_runner,
+            "get_recent_sessions",
+            return_value=sessions,
+        ):
             with patch.object(bot, "reply_safe") as mock_reply:
                 msg = make_mock_message(user_id=12345)
                 bot.show_session_picker(msg)
-                assert "Select / Resume Conversation Session" in mock_reply.call_args[0][1]
+                assert (
+                    "Select / Resume Conversation Session" in mock_reply.call_args[0][1]
+                )
 
 
 def test_handle_session_selection():
@@ -461,13 +502,18 @@ def test_handle_session_selection():
                     bot.handle_session_selection(call)
                     mock_reset.assert_called_once_with(12345)
                     mock_ans.assert_called_once()
-                    assert "New Conversation Session Started" in mock_edit.call_args[0][0]
+                    assert (
+                        "New Conversation Session Started" in mock_edit.call_args[0][0]
+                    )
 
         # Select existing session
         with patch.object(bot.agent_runner, "set_active_session") as mock_set:
             with patch.object(bot.bot, "answer_callback_query") as mock_ans:
                 with patch.object(bot, "show_session_history_card") as mock_card:
-                    call = make_mock_callback(user_id=12345, data="select_session|conv-101")
+                    call = make_mock_callback(
+                        user_id=12345,
+                        data="select_session|conv-101",
+                    )
                     bot.handle_session_selection(call)
                     mock_set.assert_called_once_with(12345, "conv-101")
                     mock_ans.assert_called_once()
@@ -476,7 +522,11 @@ def test_handle_session_selection():
 
 def test_show_session_history_card():
     turns = [{"user": "Hello", "ai": "Hi there!"}]
-    with patch.object(bot.agent_runner, "get_full_session_history_formatted", return_value=turns):
+    with patch.object(
+        bot.agent_runner,
+        "get_full_session_history_formatted",
+        return_value=turns,
+    ):
         with patch.object(bot, "send_long_message") as mock_send:
             with patch("time.sleep"):
                 bot.show_session_history_card(12345, "conv-101")
@@ -488,7 +538,11 @@ def test_delete_session_command_and_callback():
     with patch.object(config, "ALLOWED_USER_IDS", [12345]):
         # Delete command with sessions
         sessions = [{"id": "s1", "title": "Session 1", "date": "10 Mar"}]
-        with patch.object(bot.agent_runner, "get_recent_sessions", return_value=sessions):
+        with patch.object(
+            bot.agent_runner,
+            "get_recent_sessions",
+            return_value=sessions,
+        ):
             with patch.object(bot, "reply_safe") as mock_reply:
                 msg = make_mock_message(user_id=12345, text="/delete")
                 bot.delete_session_command(msg)
@@ -500,7 +554,10 @@ def test_delete_session_command_and_callback():
             with patch.object(bot.agent_runner, "reset_session") as mock_reset:
                 with patch.object(bot.bot, "answer_callback_query") as mock_ans:
                     with patch.object(bot.bot, "edit_message_text") as mock_edit:
-                        call = make_mock_callback(user_id=12345, data="delete_session|s1")
+                        call = make_mock_callback(
+                            user_id=12345,
+                            data="delete_session|s1",
+                        )
                         bot.handle_delete_session_callback(call)
                         mock_reset.assert_called_once_with(12345)
                         mock_ans.assert_called_once()
@@ -520,7 +577,11 @@ def test_handle_media_prompt(tmp_path):
             file_info.file_path = "photos/file_0.jpg"
 
             with patch.object(bot.bot, "get_file", return_value=file_info):
-                with patch.object(bot.bot, "download_file", return_value=b"fake image bytes"):
+                with patch.object(
+                    bot.bot,
+                    "download_file",
+                    return_value=b"fake image bytes",
+                ):
                     with patch.object(bot, "process_agent_prompt") as mock_proc:
                         bot.handle_media_prompt(msg_photo)
                         mock_proc.assert_called_once()

@@ -18,17 +18,23 @@ def test_parse_allowed_user_ids_with_invalid_items():
 
 
 def test_validate_config_valid():
-    assert config.validate_config(token="123456:valid_token", allowed_users=[12345]) is True
+    assert (
+        config.validate_config(token="123456:valid_token", allowed_users=[12345])  # noqa: S106
+        is True
+    )
 
 
 def test_validate_config_empty_token():
     assert config.validate_config(token="", allowed_users=[12345]) is False
-    assert config.validate_config(token="your_bot_token_here", allowed_users=[12345]) is False
+    assert (
+        config.validate_config(token="your_bot_token_here", allowed_users=[12345])  # noqa: S106
+        is False
+    )
 
 
 def test_validate_config_empty_users():
     # Still returns True even when allowed_users is empty (with a warning)
-    assert config.validate_config(token="123456:valid_token", allowed_users=[]) is True
+    assert config.validate_config(token="123456:valid_token", allowed_users=[]) is True  # noqa: S106
 
 
 def test_config_constants():

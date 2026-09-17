@@ -1,4 +1,8 @@
-from formatter import format_error_card, format_response_header, markdown_to_telegram_html
+from formatter import (
+    format_error_card,
+    format_response_header,
+    markdown_to_telegram_html,
+)
 
 sample_markdown = """
 # Project Main Title
@@ -11,7 +15,8 @@ def calculate(a, b):
     return a + b
 ```
 
-> This is a long explanatory quote that can be expanded (collapsible blockquote) in Telegram chat!
+> This is a quote that can be expanded
+> (collapsible blockquote) in Telegram chat!
 > Very neat and does not clutter the screen.
 
 ### Other Features:
@@ -101,7 +106,13 @@ def test_code_block_without_language():
 
 
 def test_code_block_preserves_inner_markdown_and_escapes_html():
-    md = "```python\n# This is not a header\nx = <b>test</b> & 'value'\n**not bold**\n```"
+    md = (
+        "```python\n"
+        "# This is not a header\n"
+        "x = <b>test</b> & 'value'\n"
+        "**not bold**\n"
+        "```"
+    )
     html_out = markdown_to_telegram_html(md)
     assert '<pre><code class="language-python">' in html_out
     assert "# This is not a header" in html_out
