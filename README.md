@@ -1,7 +1,5 @@
 # Antigravity AI Agent Telegram Bot
 
-[English](README.md) | [Bahasa Indonesia](README-id.md)
-
 Control your Linux server, coding execution, bug fixes, and development workflows remotely via Telegram, powered by the Google Antigravity AI CLI (`agy`).
 
 ## Features

@@ -1,22 +1,22 @@
 from formatter import markdown_to_telegram_html
 
 sample_markdown = """
-# Judul Utama Project
-Berikut adalah penjelasan singkat mengenai **fitur rich text** di Telegram.
+# Project Main Title
+Here is a brief overview of the **rich text features** in Telegram.
 
-## Kode Python Contoh:
+## Example Python Code:
 ```python
-def hitung(a, b):
-    # Mengembalikan hasil penjumlahan
+def calculate(a, b):
+    # Returns the sum of two numbers
     return a + b
 ```
 
-> Ini adalah kutipan penjelasan panjang yang bisa di-expand (collapsible blockquote) di Telegram chat!
-> Sangat rapi dan tidak memenuhi layar.
+> This is a long explanatory quote that can be expanded (collapsible blockquote) in Telegram chat!
+> Very neat and does not clutter the screen.
 
-### Fitur Lainnya:
-* Penggunaan `inline code` untuk nama variabel.
-* Format *italic* dan **bold** otomatis.
+### Other Features:
+* Use `inline code` for variable names.
+* Automatic *italic* and **bold** formatting.
 """
 
 result = markdown_to_telegram_html(sample_markdown)

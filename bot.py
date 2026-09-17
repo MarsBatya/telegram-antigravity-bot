@@ -51,30 +51,30 @@ path_mapper = PathMapper()
 def register_telegram_commands():
     """Registers ALL 18 slash commands into Telegram UI dropdown autocomplete menu"""
     commands = [
-        types.BotCommand("start", "🚀 Tampilkan menu utama & panduan bot"),
+        types.BotCommand("start", "🚀 Show main menu & bot guide"),
         types.BotCommand("model", "🤖 Switch Model (Gemini/Claude/GPT-OSS)"),
-        types.BotCommand("effort", "🎯 Atur Reasoning Effort (Low/Medium/High)"),
+        types.BotCommand("effort", "🎯 Set Reasoning Effort (Low/Medium/High)"),
         types.BotCommand("mode", "⚙️ Switch Mode (Accept Edits / Plan Mode)"),
-        types.BotCommand("resume", "▶️ Pilih & lanjutkan sesi percakapan AI"),
-        types.BotCommand("new", "🔄 Reset & mulai sesi AI baru"),
-        types.BotCommand("stop", "🛑 Hentikan/batalkan eksekusi AI aktif"),
-        types.BotCommand("tree", "🌳 File & Folder Explorer (Navigasi VPS)"),
-        types.BotCommand("workspace", "📂 Ubah folder kerja server (Synced ke AI)"),
-        types.BotCommand("usage", "📊 Live Models & Quota + Usage Token"),
-        types.BotCommand("status", "💻 Cek status CPU, RAM, Disk VPS & AI"),
-        types.BotCommand("rename", "✏️ Ubah nama/judul sesi percakapan aktif"),
-        types.BotCommand("delete", "🗑️ Hapus sesi percakapan dari riwayat"),
-        types.BotCommand("smash", "💥 Mode Hantam Bug & Force Fix sampai tuntas"),
-        types.BotCommand("goal", "🎯 Eksekusi tugas / goal khusus hingga tuntas"),
-        types.BotCommand("plan", "📋 Mode perencanaan (Plan Mode)"),
-        types.BotCommand("logs", "📜 Lihat log aktivitas & log systemd bot"),
-        types.BotCommand("help", "❓ Daftar lengkap perintah & bantuan")
+        types.BotCommand("resume", "▶️ Select & resume AI conversation session"),
+        types.BotCommand("new", "🔄 Reset & start new AI session"),
+        types.BotCommand("stop", "🛑 Stop/cancel active AI execution"),
+        types.BotCommand("tree", "🌳 File & Folder Explorer (VPS navigation)"),
+        types.BotCommand("workspace", "📂 Change server working directory (synced to AI)"),
+        types.BotCommand("usage", "📊 Live Models & Quota + Token Usage"),
+        types.BotCommand("status", "💻 Check CPU, RAM, Disk VPS & AI status"),
+        types.BotCommand("rename", "✏️ Rename active conversation session"),
+        types.BotCommand("delete", "🗑️ Delete conversation session from history"),
+        types.BotCommand("smash", "💥 Smash bug mode & force fix until complete"),
+        types.BotCommand("goal", "🎯 Execute specific task / goal until complete"),
+        types.BotCommand("plan", "📋 Planning mode (Plan Mode)"),
+        types.BotCommand("logs", "📜 View activity logs & bot systemd logs"),
+        types.BotCommand("help", "❓ Full command list & help")
     ]
     try:
         bot.set_my_commands(commands)
         print("✅ ALL 18 Telegram Slash Commands registered successfully into dropdown menu!")
     except Exception as e:
-        print(f"[WARNING] Gagal mendaftarkan slash commands ke Telegram: {e}")
+        print(f"[WARNING] Failed to register slash commands with Telegram: {e}")
 
 
 register_telegram_commands()
@@ -92,9 +92,9 @@ def get_main_reply_keyboard():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     markup.add(
         types.KeyboardButton("🤖 Model & Effort"),
-        types.KeyboardButton("💬 Sesi Aktif"),
-        types.KeyboardButton("▶️ Resume / Sesi"),
-        types.KeyboardButton("🔄 Sesi Baru"),
+        types.KeyboardButton("💬 Active Session"),
+        types.KeyboardButton("▶️ Resume / Session"),
+        types.KeyboardButton("🔄 New Session"),
         types.KeyboardButton("📂 Workspace & Tree"),
         types.KeyboardButton("📊 Status & Usage")
     )
@@ -132,18 +132,18 @@ def check_auth(func):
         if not config.ALLOWED_USER_IDS:
             reply_safe(
                 message,
-                f"👋 <b>Selamat Datang di Antigravity AI Bot!</b>\n\n"
-                f"ID Telegram Anda adalah: <code>{user_id}</code>\n\n"
-                f"⚠️ <b>Bot belum dikonfigurasi dengan ID Anda.</b>\n"
-                f"Silakan buka file <code>.env</code> di server dan tambahkan:\n"
+                f"👋 <b>Welcome to Antigravity AI Bot!</b>\n\n"
+                f"Your Telegram ID is: <code>{user_id}</code>\n\n"
+                f"⚠️ <b>Bot has not been configured with your ID yet.</b>\n"
+                f"Please open the <code>.env</code> file on the server and add:\n"
                 f"<code>ALLOWED_USER_IDS={user_id}</code>\n\n"
-                f"Setelah itu restart bot."
+                f"Then restart the bot."
             )
             return
         if not is_authorized(user_id):
             reply_safe(
                 message,
-                f"⛔ <b>Akses Ditolak!</b>\nID Telegram Anda (<code>{user_id}</code>) tidak terdaftar dalam ALLOWED_USER_IDS di <code>.env</code>."
+                f"⛔ <b>Access Denied!</b>\nYour Telegram ID (<code>{user_id}</code>) is not listed in ALLOWED_USER_IDS in <code>.env</code>."
             )
             print(f"[SECURITY ALERT] Unauthorized access attempt from User ID: {user_id}")
             return
@@ -158,7 +158,7 @@ def check_auth_callback(func):
         user_id = call.from_user.id
         print(f"[RECV CALLBACK] From User ID: {user_id} - Data: {call.data}")
         if not is_authorized(user_id):
-            bot.answer_callback_query(call.id, "⛔ Akses ditolak! ID Anda tidak terdaftar.", show_alert=True)
+            bot.answer_callback_query(call.id, "⛔ Access denied! Your ID is not registered.", show_alert=True)
             return
         return func(call, *args, **kwargs)
     return wrapper
@@ -237,28 +237,28 @@ def send_welcome(message):
 
     help_text = (
         "🧠 <b>Antigravity AI Agent Bot (v3.0 Full AGY Feature Parity & Sleek UX)</b>\n\n"
-        "Ketik <code>/</code> di kolom pesan untuk melihat **Dropdown Menu Perintah Lengkap**:\n\n"
-        "<b>Perintah Utama Engine:</b>\n"
+        "Type <code>/</code> in the message input to view the **Complete Command Dropdown Menu**:\n\n"
+        "<b>Core Engine Commands:</b>\n"
         "🤖 <code>/model</code> - Switch Model (Gemini / Claude / GPT-OSS)\n"
         "🎯 <code>/effort</code> - Switch Effort (Low / Medium / High)\n"
         "⚙️ <code>/mode</code> - Switch Mode (Accept Edits / Plan Mode)\n"
-        "▶️ <code>/resume [instruksi]</code> - Pilih / muat riwayat sesi percakapan AI\n"
-        "🔄 <code>/new</code> - Reset & mulai sesi AI baru dari awal\n"
-        "🛑 <code>/stop</code> atau <code>/cancel</code> - Hentikan eksekusi AI aktif\n"
+        "▶️ <code>/resume [instruction]</code> - Select / load AI conversation session history\n"
+        "🔄 <code>/new</code> - Reset & start fresh AI session from scratch\n"
+        "🛑 <code>/stop</code> or <code>/cancel</code> - Stop active AI execution\n"
         "🌳 <code>/tree</code> - Interactive File Explorer & VPS Browser\n"
-        "📂 <code>/workspace [path]</code> - Workspace Target AI Synced\n"
-        "📊 <code>/usage</code> - Live Models & Quota + Usage Token\n"
-        "💻 <code>/status</code> - Cek status RAM, Disk, CPU & AI\n"
-        "📜 <code>/logs</code> - Lihat log aktivitas & service bot\n"
-        "💥 <code>/smash &lt;deskripsi&gt;</code> - Mode Hantam Bug sampai tuntas\n"
-        "🎯 <code>/goal &lt;deskripsi&gt;</code> - Eksekusi tugas / goal khusus\n"
-        "📋 <code>/plan &lt;deskripsi&gt;</code> - Aktifkan mode perencanaan (Plan Mode)\n\n"
-        f"⚙️ <b>Dashboard Konfigurasi Chat Ini:</b>\n"
+        "📂 <code>/workspace [path]</code> - AI Synced Target Workspace\n"
+        "📊 <code>/usage</code> - Live Models & Quota + Token Usage\n"
+        "💻 <code>/status</code> - Check RAM, Disk, CPU & AI status\n"
+        "📜 <code>/logs</code> - View activity logs & bot service logs\n"
+        "💥 <code>/smash &lt;description&gt;</code> - Smash bug mode until complete\n"
+        "🎯 <code>/goal &lt;description&gt;</code> - Execute specific task / goal\n"
+        "📋 <code>/plan &lt;description&gt;</code> - Activate planning mode (Plan Mode)\n\n"
+        f"⚙️ <b>Chat Configuration Dashboard:</b>\n"
         f"• 🤖 Model: <code>{cur_model}</code>\n"
         f"• 🎯 Effort: <code>{cur_effort}</code>\n"
         f"• ⚙️ Mode: <code>{cur_mode}</code>\n"
         f"📍 <b>Workspace:</b> <code>{html.escape(user_ws)}</code>\n\n"
-        "💡 <i>Ketik pesan, kirim screenshot error, atau voice note. AI akan mengeksekusi perintah secara otomatis!</i>"
+        "💡 <i>Type a message, send an error screenshot, or voice note. AI will execute instructions automatically!</i>"
     )
     reply_safe(message, help_text, reply_markup=get_main_reply_keyboard())
 
@@ -285,17 +285,17 @@ def show_model_picker(message_or_call):
     for m in models:
         m_id = m['id']
         name = m.get('displayName') or m_id
-        is_active = " ✅ (Aktif)" if m_id == cur_model else ""
+        is_active = " ✅ (Active)" if m_id == cur_model else ""
         btn_text = f"🤖 {name}{is_active}"
         markup.add(types.InlineKeyboardButton(btn_text, callback_data=f"set_model:{m_id}"))
 
-    btn_eff = types.InlineKeyboardButton("🎯 Ubah Effort Level (/effort)", callback_data="open_effort_menu")
+    btn_eff = types.InlineKeyboardButton("🎯 Change Effort Level (/effort)", callback_data="open_effort_menu")
     markup.add(btn_eff)
 
     text = (
         "🤖 <b>Antigravity AI Model Selector</b>\n\n"
-        f"🎯 <b>Model Aktif Saat Ini:</b> <code>{cur_model}</code>\n\n"
-        "Pilih salah satu model AI di bawah untuk digunakan dalam percakapan:"
+        f"🎯 <b>Current Active Model:</b> <code>{cur_model}</code>\n\n"
+        "Select an AI model below to use in the conversation:"
     )
 
     if hasattr(message_or_call, 'data'):
@@ -321,10 +321,10 @@ def handle_set_model_callback(call):
     m_id = call.data.split(":", 1)[1]
     agent_runner.set_chat_setting(chat_id, "model", m_id)
 
-    bot.answer_callback_query(call.id, f"Model diubah ke {m_id}")
+    bot.answer_callback_query(call.id, f"Model changed to {m_id}")
     bot.edit_message_text(
-        f"✅ <b>Model AI Berhasil Diubah Ke:</b>\n<code>{m_id}</code>\n\n"
-        f"<i>Semua eksekusi AI selanjutnya akan menggunakan model ini!</i>",
+        f"✅ <b>AI Model Successfully Changed To:</b>\n<code>{m_id}</code>\n\n"
+        f"<i>All subsequent AI executions will use this model!</i>",
         chat_id,
         call.message.message_id,
         parse_mode="HTML"
@@ -338,21 +338,21 @@ def show_effort_picker(message_or_call):
     cur_effort = agent_runner.get_chat_setting(chat_id, "effort", config.DEFAULT_EFFORT)
 
     efforts = [
-        ("low", "🟢 Low - Eksekusi Cepat"),
-        ("medium", "🟡 Medium - Seimbang"),
-        ("high", "🔴 High - Penalaran Mendalam & Force Fix")
+        ("low", "🟢 Low - Fast Execution"),
+        ("medium", "🟡 Medium - Balanced"),
+        ("high", "🔴 High - Deep Reasoning & Force Fix")
     ]
 
     markup = types.InlineKeyboardMarkup(row_width=1)
     for eff_key, eff_name in efforts:
-        is_active = " ✅ (Aktif)" if eff_key == cur_effort else ""
+        is_active = " ✅ (Active)" if eff_key == cur_effort else ""
         btn_text = f"{eff_name}{is_active}"
         markup.add(types.InlineKeyboardButton(btn_text, callback_data=f"set_effort:{eff_key}"))
 
     text = (
         "🎯 <b>Antigravity Reasoning Effort Level</b>\n\n"
-        f"📊 <b>Effort Level Aktif:</b> <code>{cur_effort}</code>\n\n"
-        "Pilih tingkat kedalaman penalaran AI untuk pengerjaan tugas:"
+        f"📊 <b>Active Effort Level:</b> <code>{cur_effort}</code>\n\n"
+        "Select the AI reasoning depth for task execution:"
     )
 
     if hasattr(message_or_call, 'data'):
@@ -371,9 +371,9 @@ def handle_set_effort_callback(call):
     eff_key = call.data.split(":", 1)[1]
     agent_runner.set_chat_setting(chat_id, "effort", eff_key)
 
-    bot.answer_callback_query(call.id, f"Effort diubah ke {eff_key}")
+    bot.answer_callback_query(call.id, f"Effort changed to {eff_key}")
     bot.edit_message_text(
-        f"✅ <b>Reasoning Effort Berhasil Diubah Ke:</b> <code>{eff_key.upper()}</code>",
+        f"✅ <b>Reasoning Effort Successfully Changed To:</b> <code>{eff_key.upper()}</code>",
         chat_id,
         call.message.message_id,
         parse_mode="HTML"
@@ -387,20 +387,20 @@ def show_mode_picker(message_or_call):
     cur_mode = agent_runner.get_chat_setting(chat_id, "mode", config.DEFAULT_MODE)
 
     modes = [
-        ("accept-edits", "🛠️ Accept Edits Mode (Langsung Edit Code)"),
-        ("plan", "📋 Plan Mode (Perencanaan Langkah demi Langkah)")
+        ("accept-edits", "🛠️ Accept Edits Mode (Directly Edit Code)"),
+        ("plan", "📋 Plan Mode (Step-by-Step Planning)")
     ]
 
     markup = types.InlineKeyboardMarkup(row_width=1)
     for mode_key, mode_name in modes:
-        is_active = " ✅ (Aktif)" if mode_key == cur_mode else ""
+        is_active = " ✅ (Active)" if mode_key == cur_mode else ""
         btn_text = f"{mode_name}{is_active}"
         markup.add(types.InlineKeyboardButton(btn_text, callback_data=f"set_mode:{mode_key}"))
 
     text = (
         "⚙️ <b>Antigravity Agent Execution Mode</b>\n\n"
-        f"📍 <b>Mode Aktif Saat Ini:</b> <code>{cur_mode}</code>\n\n"
-        "Pilih mode eksekusi AI:"
+        f"📍 <b>Current Active Mode:</b> <code>{cur_mode}</code>\n\n"
+        "Select AI execution mode:"
     )
 
     if hasattr(message_or_call, 'data'):
@@ -419,9 +419,9 @@ def handle_set_mode_callback(call):
     mode_key = call.data.split(":", 1)[1]
     agent_runner.set_chat_setting(chat_id, "mode", mode_key)
 
-    bot.answer_callback_query(call.id, f"Mode diubah ke {mode_key}")
+    bot.answer_callback_query(call.id, f"Mode changed to {mode_key}")
     bot.edit_message_text(
-        f"✅ <b>Agent Mode Berhasil Diubah Ke:</b> <code>{mode_key}</code>",
+        f"✅ <b>Agent Mode Successfully Changed To:</b> <code>{mode_key}</code>",
         chat_id,
         call.message.message_id,
         parse_mode="HTML"
@@ -454,7 +454,7 @@ def render_file_explorer(message_or_call, path_dir):
     cur_ws = agent_runner.get_chat_workspace(chat_id)
     if os.path.abspath(norm_path) != os.path.abspath(cur_ws):
         set_token = path_mapper.encode(norm_path)
-        markup.add(types.InlineKeyboardButton("📍 Set Sebagai Target Workspace AI", callback_data=f"set_ws:{set_token}"))
+        markup.add(types.InlineKeyboardButton("📍 Set as AI Target Workspace", callback_data=f"set_ws:{set_token}"))
 
     try:
         entries = sorted(os.listdir(norm_path))
@@ -484,8 +484,8 @@ def render_file_explorer(message_or_call, path_dir):
 
     text = (
         f"🌳 <b>Interactive File Explorer (VPS)</b>\n\n"
-        f"📂 <b>Path Saat Ini:</b>\n<code>{html.escape(norm_path)}</code>\n\n"
-        f"Klik folder untuk menjelajah atau set sebagai target workspace:"
+        f"📂 <b>Current Path:</b>\n<code>{html.escape(norm_path)}</code>\n\n"
+        f"Click a folder to browse or set as target workspace:"
     )
 
     if hasattr(message_or_call, 'data'):
@@ -511,16 +511,16 @@ def handle_browse_dir_callback(call):
 def show_bot_logs(message):
     logs = agent_runner.fetch_bot_logs(lines_count=25)
     clean_logs = html.escape(logs)
-    send_long_message(message.chat.id, f"📜 <b>Log Aktivitas Service Bot Terbaru:</b>\n<pre><code>{clean_logs}</code></pre>")
+    send_long_message(message.chat.id, f"📜 <b>Recent Bot Service Activity Logs:</b>\n<pre><code>{clean_logs}</code></pre>")
 
 
 @bot.message_handler(commands=['stop', 'cancel'])
 @check_auth
 def handle_cancel_command(message):
     if agent_runner.cancel_chat_process(message.chat.id):
-        reply_safe(message, "🛑 <b>Eksekusi AI Antigravity Berhasil Dibatalkan!</b>")
+        reply_safe(message, "🛑 <b>Antigravity AI Execution Successfully Cancelled!</b>")
     else:
-        reply_safe(message, "ℹ️ Tidak ada proses eksekusi AI yang sedang berjalan saat ini.")
+        reply_safe(message, "ℹ️ No AI execution process is currently running.")
 
 
 @bot.callback_query_handler(func=lambda call: call.data == "cancel_execution")
@@ -528,16 +528,16 @@ def handle_cancel_command(message):
 def handle_cancel_callback(call):
     chat_id = call.message.chat.id
     if agent_runner.cancel_chat_process(chat_id):
-        bot.answer_callback_query(call.id, "Proses dibatalkan!")
+        bot.answer_callback_query(call.id, "Process cancelled!")
         try:
-            bot.edit_message_text("🛑 <b>Eksekusi Dibatalkan Pengguna.</b>", chat_id, call.message.message_id, parse_mode="HTML")
+            bot.edit_message_text("🛑 <b>Execution Cancelled by User.</b>", chat_id, call.message.message_id, parse_mode="HTML")
         except Exception:
             pass
     else:
-        bot.answer_callback_query(call.id, "Tidak ada proses yang berjalan.", show_alert=True)
+        bot.answer_callback_query(call.id, "No running process.", show_alert=True)
 
 
-@bot.message_handler(func=lambda msg: msg.text == '💬 Sesi Aktif')
+@bot.message_handler(func=lambda msg: msg.text == '💬 Active Session')
 @check_auth
 def show_active_session_info(message):
     active_conv = agent_runner.active_conversations.get(message.chat.id)
@@ -546,7 +546,7 @@ def show_active_session_info(message):
     sess_tok = usage['session_tokens']
 
     if isinstance(active_conv, str):
-        title = "Sesi Berlangsung"
+        title = "Active Session"
         sessions = agent_runner.get_recent_sessions(limit=20)
         for s in sessions:
             if s['id'] == active_conv:
@@ -554,37 +554,37 @@ def show_active_session_info(message):
                 break
 
         info_text = (
-            f"💬 <b>Sesi Percakapan Aktif Saat Ini</b>\n\n"
-            f"🏷 <b>Judul:</b> <code>{html.escape(title)}</code>\n"
-            f"🆔 <b>ID Sesi:</b> <code>{active_conv}</code>\n"
-            f"📈 <b>Konteks Sesi:</b> {sess_tok:,} Tokens\n"
-            f"📂 <b>Workspace Target AI:</b> <code>{html.escape(user_ws)}</code>\n\n"
-            f"💡 <i>Gunakan <code>/rename &lt;nama_baru&gt;</code> untuk merename judul sesi ini, atau <code>/new</code> untuk mulai sesi baru.</i>"
+            f"💬 <b>Current Active Conversation Session</b>\n\n"
+            f"🏷 <b>Title:</b> <code>{html.escape(title)}</code>\n"
+            f"🆔 <b>Session ID:</b> <code>{active_conv}</code>\n"
+            f"📈 <b>Session Context:</b> {sess_tok:,} Tokens\n"
+            f"📂 <b>AI Target Workspace:</b> <code>{html.escape(user_ws)}</code>\n\n"
+            f"💡 <i>Use <code>/rename &lt;new_title&gt;</code> to rename this session, or <code>/new</code> to start a new session.</i>"
         )
     else:
         info_text = (
-            f"💬 <b>Status Sesi Percakapan</b>\n\n"
-            f"ℹ️ <b>Sesi Baru (Belum Tersimpan)</b>\n"
-            f"📂 <b>Workspace Target AI:</b> <code>{html.escape(user_ws)}</code>\n\n"
-            f"💡 <i>Kirim pesan untuk memulai obrolan baru, atau tekan <b>▶️ Resume / Sesi</b> untuk memuat sesi lama.</i>"
+            f"💬 <b>Conversation Session Status</b>\n\n"
+            f"ℹ️ <b>New Session (Not Yet Saved)</b>\n"
+            f"📂 <b>AI Target Workspace:</b> <code>{html.escape(user_ws)}</code>\n\n"
+            f"💡 <i>Send a message to start a new chat, or press <b>▶️ Resume / Session</b> to load a past session.</i>"
         )
 
     markup = types.InlineKeyboardMarkup(row_width=2)
     markup.add(
-        types.InlineKeyboardButton("▶️ Pilih Sesi Lain", callback_data="select_session_menu"),
-        types.InlineKeyboardButton("🔄 Sesi Baru (/new)", callback_data="select_session|new")
+        types.InlineKeyboardButton("▶️ Select Another Session", callback_data="select_session_menu"),
+        types.InlineKeyboardButton("🔄 New Session (/new)", callback_data="select_session|new")
     )
     reply_safe(message, info_text, reply_markup=markup)
 
 
 @bot.message_handler(commands=['resume'])
-@bot.message_handler(func=lambda msg: msg.text == '▶️ Resume / Sesi')
+@bot.message_handler(func=lambda msg: msg.text == '▶️ Resume / Session')
 @check_auth
 def execute_resume(message):
     args = message.text.split(maxsplit=1)
-    if len(args) > 1 and message.text not in ['▶️ Resume / Sesi']:
+    if len(args) > 1 and message.text != '▶️ Resume / Session':
         resume_prompt = args[1].strip()
-        status_text = "▶️ <b>RESUME MODE!</b>\n🔄 <i>Melanjutkan sesi percakapan dari konteks terakhir...</i>"
+        status_text = "▶️ <b>RESUME MODE!</b>\n🔄 <i>Resuming conversation session from the last context...</i>"
         process_custom_agent_prompt(message, resume_prompt, status_text, runner_func=agent_runner.resume_session)
     else:
         show_session_picker(message)
@@ -602,24 +602,24 @@ def show_session_picker(message_or_call):
     chat_id = message_or_call.chat.id if hasattr(message_or_call, 'chat') else message_or_call.message.chat.id
 
     if not sessions:
-        reply_safe(message_or_call, "📜 Belum ada riwayat sesi percakapan di server.")
+        reply_safe(message_or_call, "📜 No conversation session history found on the server.")
         return
 
     markup = types.InlineKeyboardMarkup(row_width=1)
     active_conv = agent_runner.active_conversations.get(chat_id)
 
     for sess in sessions:
-        is_active = " (Aktif)" if active_conv == sess['id'] else ""
+        is_active = " (Active)" if active_conv == sess['id'] else ""
         btn_text = f"💬 {sess['title']} ({sess['date']}){is_active}"
         btn = types.InlineKeyboardButton(btn_text, callback_data=f"select_session|{sess['id']}")
         markup.add(btn)
 
-    btn_new = types.InlineKeyboardButton("🔄 Sesi Baru (/new)", callback_data="select_session|new")
+    btn_new = types.InlineKeyboardButton("🔄 New Session (/new)", callback_data="select_session|new")
     markup.add(btn_new)
 
     text = (
-        "📜 <b>Pilih / Resume Sesi Percakapan:</b>\n\n"
-        "Klik salah satu sesi di bawah untuk memuat riwayat obrolan & melanjutkan dari konteks tersebut:"
+        "📜 <b>Select / Resume Conversation Session:</b>\n\n"
+        "Click a session below to load conversation history & resume from that context:"
     )
 
     if hasattr(message_or_call, 'data'):
@@ -639,16 +639,16 @@ def handle_session_selection(call):
 
     if conv_id == "new":
         agent_runner.reset_session(chat_id)
-        bot.answer_callback_query(call.id, "Memulai sesi baru.")
+        bot.answer_callback_query(call.id, "Starting new session.")
         bot.edit_message_text(
-            "🔄 <b>Sesi Percakapan Baru Dimulai.</b>\nSiap menerima instruksi baru!",
+            "🔄 <b>New Conversation Session Started.</b>\nReady to receive new instructions!",
             chat_id,
             call.message.message_id,
             parse_mode="HTML"
         )
     else:
         agent_runner.set_active_session(chat_id, conv_id)
-        bot.answer_callback_query(call.id, "Memuat riwayat sesi...")
+        bot.answer_callback_query(call.id, "Loading session history...")
         show_session_history_card(chat_id, conv_id, message_id=call.message.message_id)
 
 
@@ -657,9 +657,9 @@ def show_session_history_card(chat_id, conv_id, message_id=None):
     history_turns = agent_runner.get_full_session_history_formatted(conv_id, max_turns=5)
 
     header = (
-        f"✅ <b>Sesi Percakapan Berhasil Di-Load!</b>\n"
-        f"🆔 <b>ID Sesi:</b> <code>{conv_id}</code>\n"
-        f"📊 <b>Ringkasan:</b> {len(history_turns)} obrolan terakhir"
+        f"✅ <b>Conversation Session Loaded Successfully!</b>\n"
+        f"🆔 <b>Session ID:</b> <code>{conv_id}</code>\n"
+        f"📊 <b>Summary:</b> Last {len(history_turns)} messages"
     )
 
     if message_id:
@@ -671,7 +671,7 @@ def show_session_history_card(chat_id, conv_id, message_id=None):
         send_long_message(chat_id, header)
 
     if not history_turns:
-        send_long_message(chat_id, "<i>Belum ada riwayat obrolan di sesi ini. Kirimkan pesan untuk mulai!</i>")
+        send_long_message(chat_id, "<i>No chat history in this session yet. Send a message to get started!</i>")
         return
 
     for i, turn in enumerate(history_turns, 1):
@@ -687,7 +687,7 @@ def show_session_history_card(chat_id, conv_id, message_id=None):
         send_long_message(chat_id, turn_block)
         time.sleep(0.2)
 
-    send_long_message(chat_id, "💡 <i>Pesan Anda berikutnya akan melanjutkan sesi percakapan ini.</i>")
+    send_long_message(chat_id, "💡 <i>Your next message will continue this conversation session.</i>")
 
 
 @bot.message_handler(commands=['rename'])
@@ -695,20 +695,20 @@ def show_session_history_card(chat_id, conv_id, message_id=None):
 def rename_session_command(message):
     args = message.text.split(maxsplit=1)
     if len(args) < 2:
-        reply_safe(message, "✏️ <b>Gunakan:</b> <code>/rename Judul Sesi Baru</code>\nContoh: <code>/rename Project Web Scraper</code>")
+        reply_safe(message, "✏️ <b>Usage:</b> <code>/rename New Session Title</code>\nExample: <code>/rename Web Scraper Project</code>")
         return
 
     new_title = args[1].strip()
     active_conv = agent_runner.active_conversations.get(message.chat.id)
 
     if not isinstance(active_conv, str):
-        reply_safe(message, "⚠️ Belum ada sesi percakapan aktif yang bisa di-rename. Pilih sesi dulu via <code>/resume</code> atau kirim instruksi baru.")
+        reply_safe(message, "⚠️ No active conversation session to rename. Select a session first via <code>/resume</code> or send a new instruction.")
         return
 
     if agent_runner.rename_session(active_conv, new_title):
-        reply_safe(message, f"✅ <b>Nama Sesi Berhasil Diubah!</b>\n🆔 <b>ID Sesi:</b> <code>{active_conv}</code>\n✏️ <b>Judul Baru:</b> <code>{html.escape(new_title)}</code>")
+        reply_safe(message, f"✅ <b>Session Name Successfully Changed!</b>\n🆔 <b>Session ID:</b> <code>{active_conv}</code>\n✏️ <b>New Title:</b> <code>{html.escape(new_title)}</code>")
     else:
-        reply_safe(message, "❌ Gagal merename sesi percakapan.")
+        reply_safe(message, "❌ Failed to rename conversation session.")
 
 
 @bot.message_handler(commands=['delete'])
@@ -716,18 +716,18 @@ def rename_session_command(message):
 def delete_session_command(message):
     sessions = agent_runner.get_recent_sessions(limit=8)
     if not sessions:
-        reply_safe(message, "📜 Belum ada riwayat sesi percakapan untuk dihapus.")
+        reply_safe(message, "📜 No conversation session history to delete.")
         return
 
     markup = types.InlineKeyboardMarkup(row_width=1)
     for sess in sessions:
-        btn_text = f"🗑️ Hapus: {sess['title']} ({sess['date']})"
+        btn_text = f"🗑️ Delete: {sess['title']} ({sess['date']})"
         btn = types.InlineKeyboardButton(btn_text, callback_data=f"delete_session|{sess['id']}")
         markup.add(btn)
 
     text = (
-        "🗑️ <b>Hapus Sesi Percakapan:</b>\n\n"
-        "Klik salah satu sesi di bawah untuk menghapusnya secara permanen dari server:"
+        "🗑️ <b>Delete Conversation Session:</b>\n\n"
+        "Click a session below to permanently delete it from the server:"
     )
     reply_safe(message, text, reply_markup=markup)
 
@@ -740,15 +740,15 @@ def handle_delete_session_callback(call):
         if agent_runner.active_conversations.get(call.message.chat.id) == conv_id:
             agent_runner.reset_session(call.message.chat.id)
 
-        bot.answer_callback_query(call.id, "Sesi berhasil dihapus.")
+        bot.answer_callback_query(call.id, "Session deleted successfully.")
         bot.edit_message_text(
-            f"✅ <b>Sesi Percakapan <code>{conv_id[:8]}...</code> Berhasil Dihapus!</b>",
+            f"✅ <b>Conversation Session <code>{conv_id[:8]}...</code> Deleted Successfully!</b>",
             call.message.chat.id,
             call.message.message_id,
             parse_mode="HTML"
         )
     else:
-        bot.answer_callback_query(call.id, "Gagal menghapus sesi.", show_alert=True)
+        bot.answer_callback_query(call.id, "Failed to delete session.", show_alert=True)
 
 
 @bot.message_handler(func=lambda msg: msg.text in ['📊 Status & Usage', '/usage'])
@@ -769,28 +769,28 @@ def send_usage(message):
     usage_text = (
         f"{live_quota_card}\n\n"
         f"───────────────────────────────\n"
-        f"📈 <b>Kapasitas Sesi Percakapan Aktif:</b>\n"
+        f"📈 <b>Active Conversation Session Capacity:</b>\n"
         f"<code>{bar_ctx}</code>\n"
-        f"• Konteks Terpakai: <b>{sess_tok:,}</b> / {max_context:,} Tokens ({pct_used:.2f}%)\n"
-        f"• Sisa Konteks: <b>{remaining_ctx:,}</b> Tokens\n"
-        f"• Akumulasi Total: <b>{tot_tok:,}</b> Tokens\n\n"
-        "💡 <i>Ketik <code>/new</code> untuk memulai sesi baru dan mereset kapasitas konteks ke 100%.</i>"
+        f"• Used Context: <b>{sess_tok:,}</b> / {max_context:,} Tokens ({pct_used:.2f}%)\n"
+        f"• Remaining Context: <b>{remaining_ctx:,}</b> Tokens\n"
+        f"• Total Accumulated: <b>{tot_tok:,}</b> Tokens\n\n"
+        "💡 <i>Type <code>/new</code> to start a new session and reset context capacity to 100%.</i>"
     )
     reply_safe(message, usage_text)
 
 
-@bot.message_handler(func=lambda msg: msg.text == '📂 Workspace & Tree')
+@bot.message_handler(func=lambda msg: msg.text in ['📂 Workspace & Tree', '/workspace'])
 @bot.message_handler(commands=['workspace'])
 @check_auth
 def change_workspace(message):
     args = message.text.split(maxsplit=1)
-    if len(args) > 1 and message.text != '📂 Workspace & Tree':
+    if len(args) > 1 and message.text not in ['📂 Workspace & Tree']:
         new_ws = os.path.abspath(args[1].strip())
         if not os.path.exists(new_ws):
             os.makedirs(new_ws, exist_ok=True)
 
         agent_runner.set_chat_workspace(message.chat.id, new_ws)
-        reply_safe(message, f"✅ <b>Workspace AI Diubah & Disinkronkan Ke:</b>\n<code>{html.escape(new_ws)}</code>")
+        reply_safe(message, f"✅ <b>AI Workspace Changed & Synced To:</b>\n<code>{html.escape(new_ws)}</code>")
     else:
         show_workspace_picker(message)
 
@@ -811,7 +811,7 @@ def show_workspace_picker(message_or_call):
     markup = types.InlineKeyboardMarkup(row_width=1)
     for d in available_dirs:
         folder_name = os.path.basename(d) or d
-        is_active = " (Aktif)" if os.path.abspath(d) == os.path.abspath(current_ws) else ""
+        is_active = " (Active)" if os.path.abspath(d) == os.path.abspath(current_ws) else ""
         btn_text = f"📁 {folder_name}{is_active}"
         token = path_mapper.encode(d)
         markup.add(types.InlineKeyboardButton(btn_text, callback_data=f"set_ws:{token}"))
@@ -821,8 +821,8 @@ def show_workspace_picker(message_or_call):
 
     text = (
         f"📂 <b>Interactive Workspace Picker</b>\n\n"
-        f"📍 <b>Workspace Aktif Saat Ini (Synced to AI):</b>\n<code>{html.escape(current_ws)}</code>\n\n"
-        f"Pilih salah satu folder proyek di bawah untuk mengubah direktori kerja AI:"
+        f"📍 <b>Current Active Workspace (Synced to AI):</b>\n<code>{html.escape(current_ws)}</code>\n\n"
+        f"Select a project directory below to switch AI working directory:"
     )
 
     if hasattr(message_or_call, 'data'):
@@ -849,16 +849,16 @@ def handle_set_ws_callback(call):
     new_ws = path_mapper.decode(token)
 
     if not new_ws:
-        bot.answer_callback_query(call.id, "Workspace tidak valid!", show_alert=True)
+        bot.answer_callback_query(call.id, "Invalid workspace!", show_alert=True)
         return
 
     os.makedirs(new_ws, exist_ok=True)
     agent_runner.set_chat_workspace(chat_id, new_ws)
 
-    bot.answer_callback_query(call.id, "Workspace disinkronkan ke AI!")
+    bot.answer_callback_query(call.id, "Workspace synced to AI!")
     bot.edit_message_text(
-        f"✅ <b>Workspace AI Berhasil Diubah & Disinkronkan Ke:</b>\n<code>{html.escape(new_ws)}</code>\n\n"
-        f"<i>Semua analisis, pencarian file, dan eksekusi AI selanjutnya 100% menargetkan folder ini!</i>",
+        f"✅ <b>AI Workspace Successfully Changed & Synced To:</b>\n<code>{html.escape(new_ws)}</code>\n\n"
+        f"<i>All subsequent AI analysis, file searches, and executions will target this folder!</i>",
         chat_id,
         call.message.message_id,
         parse_mode="HTML"
@@ -870,20 +870,20 @@ def handle_set_ws_callback(call):
 def execute_smash(message):
     args = message.text.split(maxsplit=1)
     if len(args) < 2:
-        reply_safe(message, "💥 <b>SMASH MODE!</b>\nMasukkan deskripsi bug atau tugas yang mau di-smash.\nContoh: <code>/smash Perbaiki semua error di bot.py dan tes sampai jalan!</code>")
+        reply_safe(message, "💥 <b>SMASH MODE!</b>\nEnter bug description or task to smash.\nExample: <code>/smash Fix all errors in bot.py and test until working!</code>")
         return
 
     smash_prompt = args[1].strip()
-    status_text = "💥 <b>SMASH MODE ACTIVATED!</b>\n🔨 <i>AI sedang menghancurkan bug dan mengeksekusi perbaikan secara tuntas...</i>"
+    status_text = "💥 <b>SMASH MODE ACTIVATED!</b>\n🔨 <i>AI is smashing bugs and executing complete fixes...</i>"
     process_custom_agent_prompt(message, smash_prompt, status_text, runner_func=agent_runner.run_smash_mode)
 
 
 @bot.message_handler(commands=['new', 'reset'])
-@bot.message_handler(func=lambda msg: msg.text == '🔄 Sesi Baru')
+@bot.message_handler(func=lambda msg: msg.text == '🔄 New Session')
 @check_auth
 def reset_conversation(message):
     agent_runner.reset_session(message.chat.id)
-    reply_safe(message, "🔄 <b>Sesi obrolan Antigravity AI berhasil di-reset.</b>\nSiap untuk menerima instruksi baru!")
+    reply_safe(message, "🔄 <b>Antigravity AI chat session successfully reset.</b>\nReady to receive new instructions!")
 
 
 @bot.message_handler(commands=['goal'])
@@ -891,10 +891,10 @@ def reset_conversation(message):
 def execute_goal(message):
     args = message.text.split(maxsplit=1)
     if len(args) < 2:
-        reply_safe(message, "⚠️ Masukkan deskripsi goal.\nContoh: <code>/goal Buat fitur autentikasi JWT lengkap di project-a</code>")
+        reply_safe(message, "⚠️ Enter a goal description.\nExample: <code>/goal Implement complete JWT authentication in project-a</code>")
         return
 
-    goal_prompt = f"Goal: {args[1].strip()}. Pastikan tugas ini diselesaikan sepenuhnya secara tuntas."
+    goal_prompt = f"Goal: {args[1].strip()}. Ensure this task is completed thoroughly and completely."
     process_agent_prompt(message, goal_prompt)
 
 
@@ -903,10 +903,10 @@ def execute_goal(message):
 def execute_plan(message):
     args = message.text.split(maxsplit=1)
     if len(args) < 2:
-        reply_safe(message, "⚠️ Masukkan topik perencanaan.\nContoh: <code>/plan Rencana arsitektur database untuk e-commerce</code>")
+        reply_safe(message, "⚠️ Enter a planning topic.\nExample: <code>/plan Database architecture plan for e-commerce</code>")
         return
 
-    plan_prompt = f"Buat rencana langkah demi langkah (Plan) untuk: {args[1].strip()}"
+    plan_prompt = f"Create a step-by-step plan for: {args[1].strip()}"
     process_agent_prompt(message, plan_prompt)
 
 
@@ -932,14 +932,14 @@ def send_status(message):
         disk_total_str = f"{disk.total // (1024**3)} GB"
 
         status_text = (
-            "📊 <b>Status Server & AI Engine</b>\n\n"
+            "📊 <b>Server & AI Engine Status</b>\n\n"
             f"💻 <b>CPU Usage:</b>\n<code>{cpu_bar}</code>\n\n"
             f"🧠 <b>RAM Usage:</b>\n<code>{ram_bar}</code> ({ram_used_str} / {ram_total_str})\n\n"
             f"💾 <b>Disk Usage:</b>\n<code>{disk_bar}</code> ({disk_used_str} / {disk_total_str})\n\n"
-            f"🤖 <b>Model Aktif:</b> <code>{cur_model}</code>\n"
+            f"🤖 <b>Active Model:</b> <code>{cur_model}</code>\n"
             f"🎯 <b>Effort Level:</b> <code>{cur_effort}</code>\n"
-            f"📈 <b>Sesi Konteks:</b> {usage['session_tokens']:,} Tokens\n"
-            f"📊 <b>Total Token:</b> {usage['total_tokens']:,} Tokens\n"
+            f"📈 <b>Session Context:</b> {usage['session_tokens']:,} Tokens\n"
+            f"📊 <b>Total Tokens:</b> {usage['total_tokens']:,} Tokens\n"
             f"🚀 <b>AGY Executable:</b> <code>{config.AGY_PATH}</code>\n"
             f"📂 <b>Workspace Active:</b> <code>{html.escape(user_ws)}</code>"
         )
@@ -952,7 +952,7 @@ def send_status(message):
 @check_auth
 def handle_media_prompt(message):
     try:
-        caption = message.caption or "Analisis file/foto ini dan bantu perbaiki jika ada error."
+        caption = message.caption or "Analyze this file/photo and help fix any errors if present."
         file_info = None
         file_name = "uploaded_file"
 
@@ -974,7 +974,7 @@ def handle_media_prompt(message):
             prompt = f"File uploaded at '{saved_path}'. Instructions: {caption}"
             process_agent_prompt(message, prompt)
     except Exception as e:
-        reply_safe(message, f"❌ Gagal memproses file/foto: {html.escape(str(e))}")
+        reply_safe(message, f"❌ Failed to process file/photo: {html.escape(str(e))}")
 
 
 @bot.message_handler(func=lambda msg: True, content_types=['text'])
@@ -987,13 +987,13 @@ def handle_text_prompt(message):
 
 
 def process_agent_prompt(message, prompt):
-    status_text = "<i>lagi mikir...</i>"
+    status_text = "<i>thinking...</i>"
     process_custom_agent_prompt(message, prompt, status_text, runner_func=agent_runner.run_antigravity_agent)
 
 
 def process_custom_agent_prompt(message, prompt, status_text, runner_func):
     cancel_markup = types.InlineKeyboardMarkup()
-    cancel_markup.add(types.InlineKeyboardButton("🛑 Batalkan / Stop", callback_data="cancel_execution"))
+    cancel_markup.add(types.InlineKeyboardButton("🛑 Cancel / Stop", callback_data="cancel_execution"))
 
     status_msg = reply_safe(message, status_text, reply_markup=cancel_markup)
     user_ws = agent_runner.get_chat_workspace(message.chat.id)
@@ -1065,7 +1065,7 @@ def process_custom_agent_prompt(message, prompt, status_text, runner_func):
         except Exception as e:
             stop_typing.set()
             traceback.print_exc()
-            err_card = formatter.format_error_card(str(e), suggestion="Coba ketik /new untuk reset sesi atau periksa koneksi server.")
+            err_card = formatter.format_error_card(str(e), suggestion="Try typing /new to reset the session or check your server connection.")
             reply_safe(message, err_card)
 
     task_thread = threading.Thread(target=worker, daemon=True)

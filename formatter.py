@@ -91,7 +91,7 @@ def format_error_card(error_msg: str, suggestion: str = None) -> str:
     clean_err = html.escape(error_msg)
     sug_text = f"\n\n💡 {suggestion}" if suggestion else ""
     return (
-        f"waduh ada masalah nih eheyy 😅\n"
+        f"oops, something went wrong 😅\n"
         f"<code>{clean_err}</code>"
         f"{sug_text}"
     )

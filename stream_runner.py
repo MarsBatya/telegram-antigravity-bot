@@ -170,7 +170,7 @@ def fetch_live_user_quota_summary() -> str:
     """Fetches real-time Models & Quota summary directly from Google Cloud Code PA API"""
     token_file = "/root/.gemini/antigravity-cli/antigravity-oauth-token"
     if not os.path.exists(token_file):
-        return "⚠️ <b>File token OAuth tidak ditemukan di server.</b>"
+        return "⚠️ <b>OAuth token file not found on server.</b>"
 
     try:
         with open(token_file, 'r', encoding='utf-8') as f:
@@ -180,7 +180,7 @@ def fetch_live_user_quota_summary() -> str:
         id_token = token_data.get('id_token', '')
 
         if not access_token:
-            return "⚠️ <b>Access token OAuth tidak valid.</b>"
+            return "⚠️ <b>Invalid OAuth access token.</b>"
 
         email = "daffaventure@gmail.com"
         if id_token and '.' in id_token:
@@ -233,7 +233,7 @@ def fetch_live_user_quota_summary() -> str:
 
         return "\n".join(output)
     except Exception as e:
-        return f"⚠️ <b>Gagal mengambil data kuota live:</b> <code>{str(e)}</code>"
+        return f"⚠️ <b>Failed to fetch live quota data:</b> <code>{str(e)}</code>"
 
 
 def fetch_available_models_live() -> list:
@@ -291,9 +291,9 @@ def fetch_bot_logs(lines_count: int = 30) -> str:
         )
         if res.stdout:
             return res.stdout
-        return "📜 Tidak ada log terbaru."
+        return "📜 No recent logs."
     except Exception as e:
-        return f"❌ Gagal mengambil log: {e}"
+        return f"❌ Failed to fetch logs: {e}"
 
 
 def cancel_chat_process(chat_id: int) -> bool:
@@ -327,7 +327,7 @@ def get_recent_sessions(limit=10):
             conv_id = os.path.basename(folder)
             transcript_file = os.path.join(folder, ".system_generated", "logs", "transcript.jsonl")
             
-            title = "Sesi Percakapan"
+            title = "Conversation Session"
             date_str = ""
 
             if os.path.exists(transcript_file):
@@ -465,7 +465,7 @@ def get_full_session_history_formatted(conv_id: str, max_turns: int = 5) -> list
 def run_antigravity_stream(prompt: str, chat_id: int, workspace_dir: str = None, progress_callback=None) -> tuple:
     """Runs agy with stream-json propagating --model, --effort, and --mode flags with animated spinners"""
     if not os.path.exists(config.AGY_PATH):
-        return f"❌ Executable agy tidak ditemukan di <code>{config.AGY_PATH}</code>", {}, []
+        return f"❌ agy executable not found at <code>{config.AGY_PATH}</code>", {}, []
 
     lock = get_chat_lock(chat_id)
     with lock:
@@ -515,7 +515,7 @@ def run_antigravity_stream(prompt: str, chat_id: int, workspace_dir: str = None,
 
             final_response = ""
             last_update_time = 0
-            current_activity = "lagi mikir..."
+            current_activity = "thinking..."
             turn_usage = {}
             generated_files = []
             step_counter = 0
@@ -526,7 +526,7 @@ def run_antigravity_stream(prompt: str, chat_id: int, workspace_dir: str = None,
             for line in iter(process.stdout.readline, ''):
                 if time.time() - start_time > max_duration:
                     process.kill()
-                    return "eksekusi dibatalkan: kelamaan yaa 10 menit 😅", {}, []
+                    return "execution cancelled: timed out after 10 minutes 😅", {}, []
 
                 line = line.strip()
                 if not line:
@@ -570,18 +570,18 @@ def run_antigravity_stream(prompt: str, chat_id: int, workspace_dir: str = None,
                         fname = os.path.basename(target_file) if target_file else ""
 
                         if tool_name == "view_file":
-                            current_activity = f"baca {fname}" if fname else "lagi baca file..."
+                            current_activity = f"reading {fname}" if fname else "reading file..."
                         elif tool_name in ["replace_file_content", "multi_replace_file_content", "write_to_file"]:
-                            current_activity = f"mengedit {fname}" if fname else "lagi nulis perubahan..."
+                            current_activity = f"editing {fname}" if fname else "writing changes..."
                         elif tool_name in ["grep_search", "find_files"]:
                             query = args.get("Query", "")
-                            current_activity = f"mencari {query}" if query else "lagi nyari..."
+                            current_activity = f"searching {query}" if query else "searching..."
                         elif tool_name == "run_command":
-                            current_activity = "menjalankan perintah..."
+                            current_activity = "running command..."
                         elif raw_action:
                             current_activity = raw_action.lower()
                         else:
-                            current_activity = "lagi nyusun jawaban..."
+                            current_activity = "drafting response..."
 
                         now = time.time()
                         if progress_callback and (now - last_update_time >= 1.2):
@@ -616,13 +616,13 @@ def run_antigravity_stream(prompt: str, chat_id: int, workspace_dir: str = None,
                 usage_stats['session_tokens'] += t_tok
                 usage_stats['total_tokens'] += t_tok
 
-            resp_text = final_response.strip() if final_response and final_response.strip() else "iyaa, ada yang bisa aku bantu lagi kahh? eheyy"
+            resp_text = final_response.strip() if final_response and final_response.strip() else "sure, is there anything else I can help with?"
             return resp_text, turn_usage, generated_files
 
 
         except Exception as e:
             active_processes.pop(chat_id, None)
-            return f"❌ <b>Gagal menjalankan Antigravity:</b> {str(e)}", {}, []
+            return f"❌ <b>Failed to run Antigravity:</b> {str(e)}", {}, []
 
 
 def run_smash_stream(prompt: str, chat_id: int, workspace_dir: str = None, progress_callback=None) -> tuple:
@@ -635,7 +635,7 @@ def run_smash_stream(prompt: str, chat_id: int, workspace_dir: str = None, progr
 
 
 def resume_stream(prompt: str, chat_id: int, workspace_dir: str = None, progress_callback=None) -> tuple:
-    resume_prompt = prompt if prompt else "Lanjutkan pekerjaan dan konteks dari poin terakhir yang belum selesai."
+    resume_prompt = prompt if prompt else "Continue the work and context from the last unfinished point."
     return run_antigravity_stream(resume_prompt, chat_id, workspace_dir, progress_callback)
 
 
