@@ -1,21 +1,20 @@
-import os
-import sys
-import re
 import functools
-import traceback
+import html
+import os
+import re
+import sys
 import threading
 import time
-import math
-import html
-from datetime import datetime
+import traceback
+
 import psutil
 import telebot
 from telebot import types
 
-import config
 import agent_runner
-import stream_runner
+import config
 import formatter
+import stream_runner
 
 if not config.validate_config():
     print("[ERROR] Please configure .env before starting the bot.")
@@ -26,6 +25,7 @@ bot = telebot.TeleBot(config.BOT_TOKEN, parse_mode="HTML")
 
 class PathMapper:
     """Maps long absolute paths to short tokens to keep callback_data well under Telegram's 64-byte limit"""
+
     def __init__(self):
         self._to_token = {}
         self._to_path = {}
@@ -68,7 +68,7 @@ def register_telegram_commands():
         types.BotCommand("goal", "🎯 Execute specific task / goal until complete"),
         types.BotCommand("plan", "📋 Planning mode (Plan Mode)"),
         types.BotCommand("logs", "📜 View activity logs & bot systemd logs"),
-        types.BotCommand("help", "❓ Full command list & help")
+        types.BotCommand("help", "❓ Full command list & help"),
     ]
     try:
         bot.set_my_commands(commands)
@@ -96,7 +96,7 @@ def get_main_reply_keyboard():
         types.KeyboardButton("▶️ Resume / Session"),
         types.KeyboardButton("🔄 New Session"),
         types.KeyboardButton("📂 Workspace & Tree"),
-        types.KeyboardButton("📊 Status & Usage")
+        types.KeyboardButton("📊 Status & Usage"),
     )
     return markup
 
@@ -123,6 +123,7 @@ def is_authorized(user_id: int) -> bool:
 
 def check_auth(func):
     """Decorator to enforce security for message handlers"""
+
     @functools.wraps(func)
     def wrapper(message, *args, **kwargs):
         user_id = message.from_user.id
@@ -137,22 +138,24 @@ def check_auth(func):
                 f"⚠️ <b>Bot has not been configured with your ID yet.</b>\n"
                 f"Please open the <code>.env</code> file on the server and add:\n"
                 f"<code>ALLOWED_USER_IDS={user_id}</code>\n\n"
-                f"Then restart the bot."
+                f"Then restart the bot.",
             )
             return
         if not is_authorized(user_id):
             reply_safe(
                 message,
-                f"⛔ <b>Access Denied!</b>\nYour Telegram ID (<code>{user_id}</code>) is not listed in ALLOWED_USER_IDS in <code>.env</code>."
+                f"⛔ <b>Access Denied!</b>\nYour Telegram ID (<code>{user_id}</code>) is not listed in ALLOWED_USER_IDS in <code>.env</code>.",
             )
             print(f"[SECURITY ALERT] Unauthorized access attempt from User ID: {user_id}")
             return
         return func(message, *args, **kwargs)
+
     return wrapper
 
 
 def check_auth_callback(func):
     """Decorator to enforce security for callback queries (button clicks)"""
+
     @functools.wraps(func)
     def wrapper(call, *args, **kwargs):
         user_id = call.from_user.id
@@ -161,6 +164,7 @@ def check_auth_callback(func):
             bot.answer_callback_query(call.id, "⛔ Access denied! Your ID is not registered.", show_alert=True)
             return
         return func(call, *args, **kwargs)
+
     return wrapper
 
 
@@ -175,7 +179,7 @@ def send_long_message(chat_id, text, reply_markup=None):
             return bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=reply_markup)
         except Exception as e:
             print(f"[WARNING] HTML send failed: {e}, falling back to plain text")
-            clean_text = re.sub(r'<[^>]+>', '', text)
+            clean_text = re.sub(r"<[^>]+>", "", text)
             try:
                 return bot.send_message(chat_id, clean_text, parse_mode=None, reply_markup=reply_markup)
             except Exception:
@@ -206,7 +210,7 @@ def send_long_message(chat_id, text, reply_markup=None):
         try:
             bot.send_message(chat_id, chunk, parse_mode="HTML", reply_markup=m_markup)
         except Exception:
-            clean_chunk = re.sub(r'<[^>]+>', '', chunk)
+            clean_chunk = re.sub(r"<[^>]+>", "", chunk)
             try:
                 bot.send_message(chat_id, clean_chunk, parse_mode=None, reply_markup=m_markup)
             except Exception as e:
@@ -214,20 +218,18 @@ def send_long_message(chat_id, text, reply_markup=None):
         time.sleep(0.3)
 
 
-
-
 def keep_typing_alive(chat_id, stop_event):
     """Sends 'typing' chat action every 4 seconds to maintain Telegram UI status"""
     while not stop_event.is_set():
         try:
-            bot.send_chat_action(chat_id, 'typing')
+            bot.send_chat_action(chat_id, "typing")
         except Exception:
             pass
         time.sleep(4)
 
 
-@bot.message_handler(commands=['start', 'help'])
-@bot.message_handler(func=lambda msg: msg.text == '❓ Help')
+@bot.message_handler(commands=["start", "help"])
+@bot.message_handler(func=lambda msg: msg.text == "❓ Help")
 @check_auth
 def send_welcome(message):
     user_ws = agent_runner.get_chat_workspace(message.chat.id)
@@ -263,28 +265,28 @@ def send_welcome(message):
     reply_safe(message, help_text, reply_markup=get_main_reply_keyboard())
 
 
-@bot.message_handler(func=lambda msg: msg.text in ['🤖 Model & Effort', '/model'])
-@bot.message_handler(commands=['model'])
+@bot.message_handler(func=lambda msg: msg.text in ["🤖 Model & Effort", "/model"])
+@bot.message_handler(commands=["model"])
 @check_auth
 def show_model_picker(message_or_call):
-    chat_id = message_or_call.chat.id if hasattr(message_or_call, 'chat') else message_or_call.message.chat.id
+    chat_id = message_or_call.chat.id if hasattr(message_or_call, "chat") else message_or_call.message.chat.id
     cur_model = agent_runner.get_chat_setting(chat_id, "model", config.DEFAULT_MODEL)
 
     models = agent_runner.fetch_available_models_live()
     if not models:
         models = [
-            {'id': 'gemini-3.6-flash-high', 'displayName': 'Gemini 3.6 Flash (High)'},
-            {'id': 'gemini-3.6-flash-medium', 'displayName': 'Gemini 3.6 Flash (Medium)'},
-            {'id': 'gemini-3.1-pro-high', 'displayName': 'Gemini 3.1 Pro (High)'},
-            {'id': 'claude-sonnet-4-6', 'displayName': 'Claude Sonnet 4.6 (Thinking)'},
-            {'id': 'claude-opus-4-6-thinking', 'displayName': 'Claude Opus 4.6 (Thinking)'},
-            {'id': 'gpt-oss-120b-medium', 'displayName': 'GPT-OSS 120B (Medium)'}
+            {"id": "gemini-3.6-flash-high", "displayName": "Gemini 3.6 Flash (High)"},
+            {"id": "gemini-3.6-flash-medium", "displayName": "Gemini 3.6 Flash (Medium)"},
+            {"id": "gemini-3.1-pro-high", "displayName": "Gemini 3.1 Pro (High)"},
+            {"id": "claude-sonnet-4-6", "displayName": "Claude Sonnet 4.6 (Thinking)"},
+            {"id": "claude-opus-4-6-thinking", "displayName": "Claude Opus 4.6 (Thinking)"},
+            {"id": "gpt-oss-120b-medium", "displayName": "GPT-OSS 120B (Medium)"},
         ]
 
     markup = types.InlineKeyboardMarkup(row_width=1)
     for m in models:
-        m_id = m['id']
-        name = m.get('displayName') or m_id
+        m_id = m["id"]
+        name = m.get("displayName") or m_id
         is_active = " ✅ (Active)" if m_id == cur_model else ""
         btn_text = f"🤖 {name}{is_active}"
         markup.add(types.InlineKeyboardButton(btn_text, callback_data=f"set_model:{m_id}"))
@@ -298,9 +300,11 @@ def show_model_picker(message_or_call):
         "Select an AI model below to use in the conversation:"
     )
 
-    if hasattr(message_or_call, 'data'):
+    if hasattr(message_or_call, "data"):
         try:
-            bot.edit_message_text(text, chat_id, message_or_call.message.message_id, reply_markup=markup, parse_mode="HTML")
+            bot.edit_message_text(
+                text, chat_id, message_or_call.message.message_id, reply_markup=markup, parse_mode="HTML"
+            )
         except Exception:
             pass
     else:
@@ -327,20 +331,20 @@ def handle_set_model_callback(call):
         f"<i>All subsequent AI executions will use this model!</i>",
         chat_id,
         call.message.message_id,
-        parse_mode="HTML"
+        parse_mode="HTML",
     )
 
 
-@bot.message_handler(commands=['effort'])
+@bot.message_handler(commands=["effort"])
 @check_auth
 def show_effort_picker(message_or_call):
-    chat_id = message_or_call.chat.id if hasattr(message_or_call, 'chat') else message_or_call.message.chat.id
+    chat_id = message_or_call.chat.id if hasattr(message_or_call, "chat") else message_or_call.message.chat.id
     cur_effort = agent_runner.get_chat_setting(chat_id, "effort", config.DEFAULT_EFFORT)
 
     efforts = [
         ("low", "🟢 Low - Fast Execution"),
         ("medium", "🟡 Medium - Balanced"),
-        ("high", "🔴 High - Deep Reasoning & Force Fix")
+        ("high", "🔴 High - Deep Reasoning & Force Fix"),
     ]
 
     markup = types.InlineKeyboardMarkup(row_width=1)
@@ -355,9 +359,11 @@ def show_effort_picker(message_or_call):
         "Select the AI reasoning depth for task execution:"
     )
 
-    if hasattr(message_or_call, 'data'):
+    if hasattr(message_or_call, "data"):
         try:
-            bot.edit_message_text(text, chat_id, message_or_call.message.message_id, reply_markup=markup, parse_mode="HTML")
+            bot.edit_message_text(
+                text, chat_id, message_or_call.message.message_id, reply_markup=markup, parse_mode="HTML"
+            )
         except Exception:
             pass
     else:
@@ -376,19 +382,19 @@ def handle_set_effort_callback(call):
         f"✅ <b>Reasoning Effort Successfully Changed To:</b> <code>{eff_key.upper()}</code>",
         chat_id,
         call.message.message_id,
-        parse_mode="HTML"
+        parse_mode="HTML",
     )
 
 
-@bot.message_handler(commands=['mode'])
+@bot.message_handler(commands=["mode"])
 @check_auth
 def show_mode_picker(message_or_call):
-    chat_id = message_or_call.chat.id if hasattr(message_or_call, 'chat') else message_or_call.message.chat.id
+    chat_id = message_or_call.chat.id if hasattr(message_or_call, "chat") else message_or_call.message.chat.id
     cur_mode = agent_runner.get_chat_setting(chat_id, "mode", config.DEFAULT_MODE)
 
     modes = [
         ("accept-edits", "🛠️ Accept Edits Mode (Directly Edit Code)"),
-        ("plan", "📋 Plan Mode (Step-by-Step Planning)")
+        ("plan", "📋 Plan Mode (Step-by-Step Planning)"),
     ]
 
     markup = types.InlineKeyboardMarkup(row_width=1)
@@ -403,9 +409,11 @@ def show_mode_picker(message_or_call):
         "Select AI execution mode:"
     )
 
-    if hasattr(message_or_call, 'data'):
+    if hasattr(message_or_call, "data"):
         try:
-            bot.edit_message_text(text, chat_id, message_or_call.message.message_id, reply_markup=markup, parse_mode="HTML")
+            bot.edit_message_text(
+                text, chat_id, message_or_call.message.message_id, reply_markup=markup, parse_mode="HTML"
+            )
         except Exception:
             pass
     else:
@@ -424,21 +432,21 @@ def handle_set_mode_callback(call):
         f"✅ <b>Agent Mode Successfully Changed To:</b> <code>{mode_key}</code>",
         chat_id,
         call.message.message_id,
-        parse_mode="HTML"
+        parse_mode="HTML",
     )
 
 
-@bot.message_handler(func=lambda msg: msg.text in ['📂 Workspace & Tree', '/tree'])
-@bot.message_handler(commands=['tree', 'ls'])
+@bot.message_handler(func=lambda msg: msg.text in ["📂 Workspace & Tree", "/tree"])
+@bot.message_handler(commands=["tree", "ls"])
 @check_auth
 def show_tree_explorer(message_or_call):
-    chat_id = message_or_call.chat.id if hasattr(message_or_call, 'chat') else message_or_call.message.chat.id
+    chat_id = message_or_call.chat.id if hasattr(message_or_call, "chat") else message_or_call.message.chat.id
     current_ws = agent_runner.get_chat_workspace(chat_id)
     render_file_explorer(message_or_call, current_ws)
 
 
 def render_file_explorer(message_or_call, path_dir):
-    chat_id = message_or_call.chat.id if hasattr(message_or_call, 'chat') else message_or_call.message.chat.id
+    chat_id = message_or_call.chat.id if hasattr(message_or_call, "chat") else message_or_call.message.chat.id
     norm_path = os.path.abspath(path_dir)
 
     if not os.path.exists(norm_path):
@@ -462,7 +470,7 @@ def render_file_explorer(message_or_call, path_dir):
         files = []
 
         for e in entries:
-            if e.startswith('.'):
+            if e.startswith("."):
                 continue
             full_e = os.path.join(norm_path, e)
             if os.path.isdir(full_e):
@@ -488,9 +496,11 @@ def render_file_explorer(message_or_call, path_dir):
         f"Click a folder to browse or set as target workspace:"
     )
 
-    if hasattr(message_or_call, 'data'):
+    if hasattr(message_or_call, "data"):
         try:
-            bot.edit_message_text(text, chat_id, message_or_call.message.message_id, reply_markup=markup, parse_mode="HTML")
+            bot.edit_message_text(
+                text, chat_id, message_or_call.message.message_id, reply_markup=markup, parse_mode="HTML"
+            )
         except Exception:
             pass
     else:
@@ -506,15 +516,17 @@ def handle_browse_dir_callback(call):
     render_file_explorer(call, path_dir)
 
 
-@bot.message_handler(commands=['logs'])
+@bot.message_handler(commands=["logs"])
 @check_auth
 def show_bot_logs(message):
     logs = agent_runner.fetch_bot_logs(lines_count=25)
     clean_logs = html.escape(logs)
-    send_long_message(message.chat.id, f"📜 <b>Recent Bot Service Activity Logs:</b>\n<pre><code>{clean_logs}</code></pre>")
+    send_long_message(
+        message.chat.id, f"📜 <b>Recent Bot Service Activity Logs:</b>\n<pre><code>{clean_logs}</code></pre>"
+    )
 
 
-@bot.message_handler(commands=['stop', 'cancel'])
+@bot.message_handler(commands=["stop", "cancel"])
 @check_auth
 def handle_cancel_command(message):
     if agent_runner.cancel_chat_process(message.chat.id):
@@ -530,27 +542,29 @@ def handle_cancel_callback(call):
     if agent_runner.cancel_chat_process(chat_id):
         bot.answer_callback_query(call.id, "Process cancelled!")
         try:
-            bot.edit_message_text("🛑 <b>Execution Cancelled by User.</b>", chat_id, call.message.message_id, parse_mode="HTML")
+            bot.edit_message_text(
+                "🛑 <b>Execution Cancelled by User.</b>", chat_id, call.message.message_id, parse_mode="HTML"
+            )
         except Exception:
             pass
     else:
         bot.answer_callback_query(call.id, "No running process.", show_alert=True)
 
 
-@bot.message_handler(func=lambda msg: msg.text == '💬 Active Session')
+@bot.message_handler(func=lambda msg: msg.text == "💬 Active Session")
 @check_auth
 def show_active_session_info(message):
     active_conv = agent_runner.active_conversations.get(message.chat.id)
     user_ws = agent_runner.get_chat_workspace(message.chat.id)
     usage = stream_runner.get_token_usage(message.chat.id)
-    sess_tok = usage['session_tokens']
+    sess_tok = usage["session_tokens"]
 
     if isinstance(active_conv, str):
         title = "Active Session"
         sessions = agent_runner.get_recent_sessions(limit=20)
         for s in sessions:
-            if s['id'] == active_conv:
-                title = s['title']
+            if s["id"] == active_conv:
+                title = s["title"]
                 break
 
         info_text = (
@@ -572,17 +586,17 @@ def show_active_session_info(message):
     markup = types.InlineKeyboardMarkup(row_width=2)
     markup.add(
         types.InlineKeyboardButton("▶️ Select Another Session", callback_data="select_session_menu"),
-        types.InlineKeyboardButton("🔄 New Session (/new)", callback_data="select_session|new")
+        types.InlineKeyboardButton("🔄 New Session (/new)", callback_data="select_session|new"),
     )
     reply_safe(message, info_text, reply_markup=markup)
 
 
-@bot.message_handler(commands=['resume'])
-@bot.message_handler(func=lambda msg: msg.text == '▶️ Resume / Session')
+@bot.message_handler(commands=["resume"])
+@bot.message_handler(func=lambda msg: msg.text == "▶️ Resume / Session")
 @check_auth
 def execute_resume(message):
     args = message.text.split(maxsplit=1)
-    if len(args) > 1 and message.text != '▶️ Resume / Session':
+    if len(args) > 1 and message.text != "▶️ Resume / Session":
         resume_prompt = args[1].strip()
         status_text = "▶️ <b>RESUME MODE!</b>\n🔄 <i>Resuming conversation session from the last context...</i>"
         process_custom_agent_prompt(message, resume_prompt, status_text, runner_func=agent_runner.resume_session)
@@ -599,7 +613,7 @@ def handle_select_session_menu(call):
 
 def show_session_picker(message_or_call):
     sessions = agent_runner.get_recent_sessions(limit=6)
-    chat_id = message_or_call.chat.id if hasattr(message_or_call, 'chat') else message_or_call.message.chat.id
+    chat_id = message_or_call.chat.id if hasattr(message_or_call, "chat") else message_or_call.message.chat.id
 
     if not sessions:
         reply_safe(message_or_call, "📜 No conversation session history found on the server.")
@@ -609,7 +623,7 @@ def show_session_picker(message_or_call):
     active_conv = agent_runner.active_conversations.get(chat_id)
 
     for sess in sessions:
-        is_active = " (Active)" if active_conv == sess['id'] else ""
+        is_active = " (Active)" if active_conv == sess["id"] else ""
         btn_text = f"💬 {sess['title']} ({sess['date']}){is_active}"
         btn = types.InlineKeyboardButton(btn_text, callback_data=f"select_session|{sess['id']}")
         markup.add(btn)
@@ -622,9 +636,11 @@ def show_session_picker(message_or_call):
         "Click a session below to load conversation history & resume from that context:"
     )
 
-    if hasattr(message_or_call, 'data'):
+    if hasattr(message_or_call, "data"):
         try:
-            bot.edit_message_text(text, chat_id, message_or_call.message.message_id, reply_markup=markup, parse_mode="HTML")
+            bot.edit_message_text(
+                text, chat_id, message_or_call.message.message_id, reply_markup=markup, parse_mode="HTML"
+            )
         except Exception:
             pass
     else:
@@ -644,7 +660,7 @@ def handle_session_selection(call):
             "🔄 <b>New Conversation Session Started.</b>\nReady to receive new instructions!",
             chat_id,
             call.message.message_id,
-            parse_mode="HTML"
+            parse_mode="HTML",
         )
     else:
         agent_runner.set_active_session(chat_id, conv_id)
@@ -680,9 +696,7 @@ def show_session_history_card(chat_id, conv_id, message_id=None):
         a_msg = formatter.markdown_to_telegram_html(raw_ai)
 
         turn_block = (
-            f"👤 <b>User (#{i}):</b> {u_msg}\n\n"
-            f"🤖 <b>Antigravity AI:</b>\n"
-            f"<blockquote expandable>{a_msg}</blockquote>"
+            f"👤 <b>User (#{i}):</b> {u_msg}\n\n🤖 <b>Antigravity AI:</b>\n<blockquote expandable>{a_msg}</blockquote>"
         )
         send_long_message(chat_id, turn_block)
         time.sleep(0.2)
@@ -690,28 +704,37 @@ def show_session_history_card(chat_id, conv_id, message_id=None):
     send_long_message(chat_id, "💡 <i>Your next message will continue this conversation session.</i>")
 
 
-@bot.message_handler(commands=['rename'])
+@bot.message_handler(commands=["rename"])
 @check_auth
 def rename_session_command(message):
     args = message.text.split(maxsplit=1)
     if len(args) < 2:
-        reply_safe(message, "✏️ <b>Usage:</b> <code>/rename New Session Title</code>\nExample: <code>/rename Web Scraper Project</code>")
+        reply_safe(
+            message,
+            "✏️ <b>Usage:</b> <code>/rename New Session Title</code>\nExample: <code>/rename Web Scraper Project</code>",
+        )
         return
 
     new_title = args[1].strip()
     active_conv = agent_runner.active_conversations.get(message.chat.id)
 
     if not isinstance(active_conv, str):
-        reply_safe(message, "⚠️ No active conversation session to rename. Select a session first via <code>/resume</code> or send a new instruction.")
+        reply_safe(
+            message,
+            "⚠️ No active conversation session to rename. Select a session first via <code>/resume</code> or send a new instruction.",
+        )
         return
 
     if agent_runner.rename_session(active_conv, new_title):
-        reply_safe(message, f"✅ <b>Session Name Successfully Changed!</b>\n🆔 <b>Session ID:</b> <code>{active_conv}</code>\n✏️ <b>New Title:</b> <code>{html.escape(new_title)}</code>")
+        reply_safe(
+            message,
+            f"✅ <b>Session Name Successfully Changed!</b>\n🆔 <b>Session ID:</b> <code>{active_conv}</code>\n✏️ <b>New Title:</b> <code>{html.escape(new_title)}</code>",
+        )
     else:
         reply_safe(message, "❌ Failed to rename conversation session.")
 
 
-@bot.message_handler(commands=['delete'])
+@bot.message_handler(commands=["delete"])
 @check_auth
 def delete_session_command(message):
     sessions = agent_runner.get_recent_sessions(limit=8)
@@ -725,10 +748,7 @@ def delete_session_command(message):
         btn = types.InlineKeyboardButton(btn_text, callback_data=f"delete_session|{sess['id']}")
         markup.add(btn)
 
-    text = (
-        "🗑️ <b>Delete Conversation Session:</b>\n\n"
-        "Click a session below to permanently delete it from the server:"
-    )
+    text = "🗑️ <b>Delete Conversation Session:</b>\n\nClick a session below to permanently delete it from the server:"
     reply_safe(message, text, reply_markup=markup)
 
 
@@ -745,21 +765,21 @@ def handle_delete_session_callback(call):
             f"✅ <b>Conversation Session <code>{conv_id[:8]}...</code> Deleted Successfully!</b>",
             call.message.chat.id,
             call.message.message_id,
-            parse_mode="HTML"
+            parse_mode="HTML",
         )
     else:
         bot.answer_callback_query(call.id, "Failed to delete session.", show_alert=True)
 
 
-@bot.message_handler(func=lambda msg: msg.text in ['📊 Status & Usage', '/usage'])
-@bot.message_handler(commands=['usage'])
+@bot.message_handler(func=lambda msg: msg.text in ["📊 Status & Usage", "/usage"])
+@bot.message_handler(commands=["usage"])
 @check_auth
 def send_usage(message):
     live_quota_card = agent_runner.fetch_live_user_quota_summary()
-    
+
     usage = stream_runner.get_token_usage(message.chat.id)
-    sess_tok = usage['session_tokens']
-    tot_tok = usage['total_tokens']
+    sess_tok = usage["session_tokens"]
+    tot_tok = usage["total_tokens"]
 
     max_context = 1_000_000
     remaining_ctx = max(0, max_context - sess_tok)
@@ -779,12 +799,12 @@ def send_usage(message):
     reply_safe(message, usage_text)
 
 
-@bot.message_handler(func=lambda msg: msg.text in ['📂 Workspace & Tree', '/workspace'])
-@bot.message_handler(commands=['workspace'])
+@bot.message_handler(func=lambda msg: msg.text in ["📂 Workspace & Tree", "/workspace"])
+@bot.message_handler(commands=["workspace"])
 @check_auth
 def change_workspace(message):
     args = message.text.split(maxsplit=1)
-    if len(args) > 1 and message.text not in ['📂 Workspace & Tree']:
+    if len(args) > 1 and message.text not in ["📂 Workspace & Tree"]:
         new_ws = os.path.abspath(args[1].strip())
         if not os.path.exists(new_ws):
             os.makedirs(new_ws, exist_ok=True)
@@ -796,7 +816,7 @@ def change_workspace(message):
 
 
 def show_workspace_picker(message_or_call):
-    chat_id = message_or_call.chat.id if hasattr(message_or_call, 'chat') else message_or_call.message.chat.id
+    chat_id = message_or_call.chat.id if hasattr(message_or_call, "chat") else message_or_call.message.chat.id
     current_ws = agent_runner.get_chat_workspace(chat_id)
 
     base_dir = "/root/my-project"
@@ -805,7 +825,7 @@ def show_workspace_picker(message_or_call):
     if os.path.exists(base_dir):
         for entry in sorted(os.listdir(base_dir)):
             full = os.path.join(base_dir, entry)
-            if os.path.isdir(full) and not entry.startswith('.'):
+            if os.path.isdir(full) and not entry.startswith("."):
                 available_dirs.append(full)
 
     markup = types.InlineKeyboardMarkup(row_width=1)
@@ -825,9 +845,11 @@ def show_workspace_picker(message_or_call):
         f"Select a project directory below to switch AI working directory:"
     )
 
-    if hasattr(message_or_call, 'data'):
+    if hasattr(message_or_call, "data"):
         try:
-            bot.edit_message_text(text, chat_id, message_or_call.message.message_id, reply_markup=markup, parse_mode="HTML")
+            bot.edit_message_text(
+                text, chat_id, message_or_call.message.message_id, reply_markup=markup, parse_mode="HTML"
+            )
         except Exception:
             pass
     else:
@@ -861,16 +883,19 @@ def handle_set_ws_callback(call):
         f"<i>All subsequent AI analysis, file searches, and executions will target this folder!</i>",
         chat_id,
         call.message.message_id,
-        parse_mode="HTML"
+        parse_mode="HTML",
     )
 
 
-@bot.message_handler(commands=['smash'])
+@bot.message_handler(commands=["smash"])
 @check_auth
 def execute_smash(message):
     args = message.text.split(maxsplit=1)
     if len(args) < 2:
-        reply_safe(message, "💥 <b>SMASH MODE!</b>\nEnter bug description or task to smash.\nExample: <code>/smash Fix all errors in bot.py and test until working!</code>")
+        reply_safe(
+            message,
+            "💥 <b>SMASH MODE!</b>\nEnter bug description or task to smash.\nExample: <code>/smash Fix all errors in bot.py and test until working!</code>",
+        )
         return
 
     smash_prompt = args[1].strip()
@@ -878,45 +903,50 @@ def execute_smash(message):
     process_custom_agent_prompt(message, smash_prompt, status_text, runner_func=agent_runner.run_smash_mode)
 
 
-@bot.message_handler(commands=['new', 'reset'])
-@bot.message_handler(func=lambda msg: msg.text == '🔄 New Session')
+@bot.message_handler(commands=["new", "reset"])
+@bot.message_handler(func=lambda msg: msg.text == "🔄 New Session")
 @check_auth
 def reset_conversation(message):
     agent_runner.reset_session(message.chat.id)
     reply_safe(message, "🔄 <b>Antigravity AI chat session successfully reset.</b>\nReady to receive new instructions!")
 
 
-@bot.message_handler(commands=['goal'])
+@bot.message_handler(commands=["goal"])
 @check_auth
 def execute_goal(message):
     args = message.text.split(maxsplit=1)
     if len(args) < 2:
-        reply_safe(message, "⚠️ Enter a goal description.\nExample: <code>/goal Implement complete JWT authentication in project-a</code>")
+        reply_safe(
+            message,
+            "⚠️ Enter a goal description.\nExample: <code>/goal Implement complete JWT authentication in project-a</code>",
+        )
         return
 
     goal_prompt = f"Goal: {args[1].strip()}. Ensure this task is completed thoroughly and completely."
     process_agent_prompt(message, goal_prompt)
 
 
-@bot.message_handler(commands=['plan'])
+@bot.message_handler(commands=["plan"])
 @check_auth
 def execute_plan(message):
     args = message.text.split(maxsplit=1)
     if len(args) < 2:
-        reply_safe(message, "⚠️ Enter a planning topic.\nExample: <code>/plan Database architecture plan for e-commerce</code>")
+        reply_safe(
+            message, "⚠️ Enter a planning topic.\nExample: <code>/plan Database architecture plan for e-commerce</code>"
+        )
         return
 
     plan_prompt = f"Create a step-by-step plan for: {args[1].strip()}"
     process_agent_prompt(message, plan_prompt)
 
 
-@bot.message_handler(commands=['status'])
+@bot.message_handler(commands=["status"])
 @check_auth
 def send_status(message):
     try:
         cpu_pct = psutil.cpu_percent(interval=0.8)
         ram = psutil.virtual_memory()
-        disk = psutil.disk_usage('/')
+        disk = psutil.disk_usage("/")
         usage = stream_runner.get_token_usage(message.chat.id)
         user_ws = agent_runner.get_chat_workspace(message.chat.id)
         cur_model = agent_runner.get_chat_setting(message.chat.id, "model", config.DEFAULT_MODEL)
@@ -948,7 +978,7 @@ def send_status(message):
         reply_safe(message, f"❌ Error status: {html.escape(str(e))}")
 
 
-@bot.message_handler(content_types=['photo', 'document'])
+@bot.message_handler(content_types=["photo", "document"])
 @check_auth
 def handle_media_prompt(message):
     try:
@@ -977,7 +1007,7 @@ def handle_media_prompt(message):
         reply_safe(message, f"❌ Failed to process file/photo: {html.escape(str(e))}")
 
 
-@bot.message_handler(func=lambda msg: True, content_types=['text'])
+@bot.message_handler(func=lambda msg: True, content_types=["text"])
 @check_auth
 def handle_text_prompt(message):
     prompt = message.text.strip()
@@ -1008,12 +1038,16 @@ def process_custom_agent_prompt(message, prompt, status_text, runner_func):
         def update_progress(text):
             if status_msg:
                 try:
-                    bot.edit_message_text(text, message.chat.id, status_msg.message_id, parse_mode="HTML", reply_markup=cancel_markup)
+                    bot.edit_message_text(
+                        text, message.chat.id, status_msg.message_id, parse_mode="HTML", reply_markup=cancel_markup
+                    )
                 except Exception:
                     pass
 
         try:
-            response, turn_usage, generated_files = runner_func(prompt, message.chat.id, user_ws, progress_callback=update_progress)
+            response, turn_usage, generated_files = runner_func(
+                prompt, message.chat.id, user_ws, progress_callback=update_progress
+            )
 
             stop_typing.set()
             typing_thread.join(timeout=1)
@@ -1044,7 +1078,7 @@ def process_custom_agent_prompt(message, prompt, status_text, runner_func):
             action_bar = types.InlineKeyboardMarkup(row_width=2)
             action_bar.add(
                 types.InlineKeyboardButton("🌳 Browse Files", callback_data="open_tree_explorer"),
-                types.InlineKeyboardButton("📊 Live Quotas", callback_data="open_quota_info")
+                types.InlineKeyboardButton("📊 Live Quotas", callback_data="open_quota_info"),
             )
 
             send_long_message(message.chat.id, final_output, reply_markup=action_bar)
@@ -1054,18 +1088,24 @@ def process_custom_agent_prompt(message, prompt, status_text, runner_func):
                     if os.path.exists(fpath) and os.path.getsize(fpath) > 0:
                         try:
                             ext = os.path.splitext(fpath)[1].lower()
-                            with open(fpath, 'rb') as doc:
-                                if ext in ['.png', '.jpg', '.jpeg', '.webp']:
-                                    bot.send_photo(message.chat.id, doc, caption=f"🖼️ Generated Image: {os.path.basename(fpath)}")
+                            with open(fpath, "rb") as doc:
+                                if ext in [".png", ".jpg", ".jpeg", ".webp"]:
+                                    bot.send_photo(
+                                        message.chat.id, doc, caption=f"🖼️ Generated Image: {os.path.basename(fpath)}"
+                                    )
                                 else:
-                                    bot.send_document(message.chat.id, doc, caption=f"📄 Generated File: {os.path.basename(fpath)}")
+                                    bot.send_document(
+                                        message.chat.id, doc, caption=f"📄 Generated File: {os.path.basename(fpath)}"
+                                    )
                         except Exception as e:
                             print(f"[ERROR] Auto-send file failed: {e}")
 
         except Exception as e:
             stop_typing.set()
             traceback.print_exc()
-            err_card = formatter.format_error_card(str(e), suggestion="Try typing /new to reset the session or check your server connection.")
+            err_card = formatter.format_error_card(
+                str(e), suggestion="Try typing /new to reset the session or check your server connection."
+            )
             reply_safe(message, err_card)
 
     task_thread = threading.Thread(target=worker, daemon=True)

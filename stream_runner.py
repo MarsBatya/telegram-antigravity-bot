@@ -1,21 +1,22 @@
-import subprocess
-import os
+import base64
 import json
+import os
 import re
 import shutil
-import time
+import subprocess
 import threading
-import base64
-import urllib.request
+import time
 import urllib.error
+import urllib.request
 from datetime import datetime, timezone
+
 import config
 
 SESSION_FILE = os.path.join(os.path.dirname(__file__), "sessions.json")
 
 active_conversations = {}
 active_workspaces = {}
-active_settings = {}   # chat_id -> {'model': ..., 'effort': ..., 'mode': ...}
+active_settings = {}  # chat_id -> {'model': ..., 'effort': ..., 'mode': ...}
 chat_token_usage = {}  # chat_id -> {'session_tokens': 0, 'total_tokens': 0}
 active_processes = {}  # chat_id -> subprocess.Popen instance
 
@@ -37,7 +38,7 @@ def load_persistent_sessions():
                 settings = data.get("settings", {})
                 if not convs and not workspaces and isinstance(data, dict):
                     convs = data
-                
+
                 active_conversations = {int(k): v for k, v in convs.items()}
                 active_workspaces = {int(k): v for k, v in workspaces.items()}
                 active_settings = {int(k): v for k, v in settings.items()}
@@ -55,7 +56,7 @@ def save_persistent_sessions():
         data = {
             "conversations": {str(k): v for k, v in active_conversations.items()},
             "workspaces": {str(k): v for k, v in active_workspaces.items()},
-            "settings": {str(k): v for k, v in active_settings.items()}
+            "settings": {str(k): v for k, v in active_settings.items()},
         }
         with open(SESSION_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
@@ -71,7 +72,7 @@ def get_chat_setting(chat_id: int, key: str, default=None):
         active_settings[chat_id] = {
             "model": config.DEFAULT_MODEL,
             "effort": config.DEFAULT_EFFORT,
-            "mode": config.DEFAULT_MODE
+            "mode": config.DEFAULT_MODE,
         }
     return active_settings[chat_id].get(key, default)
 
@@ -81,7 +82,7 @@ def set_chat_setting(chat_id: int, key: str, value: str):
         active_settings[chat_id] = {
             "model": config.DEFAULT_MODEL,
             "effort": config.DEFAULT_EFFORT,
-            "mode": config.DEFAULT_MODE
+            "mode": config.DEFAULT_MODE,
         }
     active_settings[chat_id][key] = value
     save_persistent_sessions()
@@ -104,24 +105,26 @@ def get_chat_lock(chat_id: int):
 
 def get_token_usage(chat_id: int):
     if chat_id not in chat_token_usage:
-        chat_token_usage[chat_id] = {'session_tokens': 0, 'total_tokens': 0}
-    
+        chat_token_usage[chat_id] = {"session_tokens": 0, "total_tokens": 0}
+
     conv_id = active_conversations.get(chat_id)
-    if isinstance(conv_id, str) and conv_id and chat_token_usage[chat_id]['session_tokens'] == 0:
-        chat_token_usage[chat_id]['session_tokens'] = calculate_session_tokens(conv_id)
+    if isinstance(conv_id, str) and conv_id and chat_token_usage[chat_id]["session_tokens"] == 0:
+        chat_token_usage[chat_id]["session_tokens"] = calculate_session_tokens(conv_id)
 
     return chat_token_usage[chat_id]
 
 
 def calculate_session_tokens(conv_id: str) -> int:
     """Calculates total tokens accumulated in a conversation session from transcript.jsonl"""
-    transcript_file = os.path.join("/root/.gemini/antigravity-cli/brain", conv_id, ".system_generated", "logs", "transcript.jsonl")
+    transcript_file = os.path.join(
+        "/root/.gemini/antigravity-cli/brain", conv_id, ".system_generated", "logs", "transcript.jsonl"
+    )
     if not os.path.exists(transcript_file):
         return 0
 
     total_tokens = 0
     try:
-        with open(transcript_file, 'r', encoding='utf-8') as f:
+        with open(transcript_file, "r", encoding="utf-8") as f:
             for line in f:
                 try:
                     data = json.loads(line)
@@ -173,56 +176,56 @@ def fetch_live_user_quota_summary() -> str:
         return "⚠️ <b>OAuth token file not found on server.</b>"
 
     try:
-        with open(token_file, 'r', encoding='utf-8') as f:
+        with open(token_file, "r", encoding="utf-8") as f:
             token_data = json.load(f)
 
-        access_token = token_data.get('token', {}).get('access_token')
-        id_token = token_data.get('id_token', '')
+        access_token = token_data.get("token", {}).get("access_token")
+        id_token = token_data.get("id_token", "")
 
         if not access_token:
             return "⚠️ <b>Invalid OAuth access token.</b>"
 
         email = "daffaventure@gmail.com"
-        if id_token and '.' in id_token:
+        if id_token and "." in id_token:
             try:
-                payload_b64 = id_token.split('.')[1]
-                payload_b64 += '=' * (-len(payload_b64) % 4)
-                payload = json.loads(base64.b64decode(payload_b64).decode('utf-8'))
-                email = payload.get('email', email)
+                payload_b64 = id_token.split(".")[1]
+                payload_b64 += "=" * (-len(payload_b64) % 4)
+                payload = json.loads(base64.b64decode(payload_b64).decode("utf-8"))
+                email = payload.get("email", email)
             except Exception:
                 pass
 
         headers = {
-            'Authorization': f'Bearer {access_token}',
-            'Content-Type': 'application/json',
-            'User-Agent': 'antigravity-cli/1.1.9'
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+            "User-Agent": "antigravity-cli/1.1.9",
         }
 
-        url = 'https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary'
-        req = urllib.request.Request(url, data=b'{}', headers=headers, method='POST')
+        url = "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary"
+        req = urllib.request.Request(url, data=b"{}", headers=headers, method="POST")
 
         with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode('utf-8'))
+            data = json.loads(resp.read().decode("utf-8"))
 
         output = []
         output.append("└ <b>Models & Quota</b>")
         output.append(f"  <b>Account:</b> <code>{email}</code>\n")
 
-        for group in data.get('groups', []):
-            g_name = group.get('displayName', '').upper()
-            g_desc = group.get('description', '')
+        for group in data.get("groups", []):
+            g_name = group.get("displayName", "").upper()
+            g_desc = group.get("description", "")
             output.append(f"<b>{g_name}</b>")
             output.append(f"  <i>{g_desc}</i>\n")
-            
-            for bucket in group.get('buckets', []):
-                b_name = bucket.get('displayName', '')
-                disabled = bucket.get('disabled', False)
-                rem_frac = bucket.get('remainingFraction', 0.0)
+
+            for bucket in group.get("buckets", []):
+                b_name = bucket.get("displayName", "")
+                disabled = bucket.get("disabled", False)
+                rem_frac = bucket.get("remainingFraction", 0.0)
                 pct = rem_frac * 100.0
                 bar = make_ascii_bar(pct)
-                reset_str = parse_reset_time(bucket.get('resetTime'))
-                b_desc = bucket.get('description', '')
-                
+                reset_str = parse_reset_time(bucket.get("resetTime"))
+                b_desc = bucket.get("description", "")
+
                 output.append(f"  <b>{b_name}</b>")
                 if disabled:
                     output.append("    <code>[Disabled]</code>")
@@ -243,37 +246,39 @@ def fetch_available_models_live() -> list:
         return []
 
     try:
-        with open(token_file, 'r', encoding='utf-8') as f:
+        with open(token_file, "r", encoding="utf-8") as f:
             token_data = json.load(f)
 
-        access_token = token_data.get('token', {}).get('access_token')
+        access_token = token_data.get("token", {}).get("access_token")
         if not access_token:
             return []
 
         headers = {
-            'Authorization': f'Bearer {access_token}',
-            'Content-Type': 'application/json',
-            'User-Agent': 'antigravity-cli/1.1.9'
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+            "User-Agent": "antigravity-cli/1.1.9",
         }
 
-        url = 'https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels'
-        req = urllib.request.Request(url, data=b'{}', headers=headers, method='POST')
+        url = "https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels"
+        req = urllib.request.Request(url, data=b"{}", headers=headers, method="POST")
 
         with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode('utf-8'))
+            data = json.loads(resp.read().decode("utf-8"))
 
         models = []
-        for m_id, m_info in data.get('models', {}).items():
-            disp = m_info.get('displayName')
+        for m_id, m_info in data.get("models", {}).items():
+            disp = m_info.get("displayName")
             if disp:
-                models.append({
-                    'id': m_id,
-                    'displayName': disp,
-                    'supportsThinking': m_info.get('supportsThinking', False),
-                    'recommended': m_info.get('recommended', False)
-                })
+                models.append(
+                    {
+                        "id": m_id,
+                        "displayName": disp,
+                        "supportsThinking": m_info.get("supportsThinking", False),
+                        "recommended": m_info.get("recommended", False),
+                    }
+                )
 
-        models.sort(key=lambda x: (not x['recommended'], x['displayName']))
+        models.sort(key=lambda x: (not x["recommended"], x["displayName"]))
         return models
     except Exception as e:
         print(f"[ERROR] fetch_available_models_live: {e}")
@@ -287,7 +292,7 @@ def fetch_bot_logs(lines_count: int = 30) -> str:
             ["journalctl", "-u", "antigravity-bot", "-n", str(lines_count), "--no-pager"],
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=5,
         )
         if res.stdout:
             return res.stdout
@@ -320,30 +325,32 @@ def get_recent_sessions(limit=10):
 
     sessions = []
     try:
-        entries = [os.path.join(brain_dir, d) for d in os.listdir(brain_dir) if os.path.isdir(os.path.join(brain_dir, d))]
+        entries = [
+            os.path.join(brain_dir, d) for d in os.listdir(brain_dir) if os.path.isdir(os.path.join(brain_dir, d))
+        ]
         entries.sort(key=lambda x: os.path.getmtime(x), reverse=True)
 
         for folder in entries[:limit]:
             conv_id = os.path.basename(folder)
             transcript_file = os.path.join(folder, ".system_generated", "logs", "transcript.jsonl")
-            
+
             title = "Conversation Session"
             date_str = ""
 
             if os.path.exists(transcript_file):
                 try:
-                    with open(transcript_file, 'r', encoding='utf-8') as f:
+                    with open(transcript_file, "r", encoding="utf-8") as f:
                         for line in f:
                             data = json.loads(line)
                             if data.get("type") == "USER_INPUT":
                                 content = data.get("content", "")
-                                match = re.search(r'<USER_REQUEST>(.*?)</USER_REQUEST>', content, re.DOTALL)
+                                match = re.search(r"<USER_REQUEST>(.*?)</USER_REQUEST>", content, re.DOTALL)
                                 if match:
                                     raw_text = match.group(1).strip()
                                     title = raw_text[:50] + ("..." if len(raw_text) > 50 else "")
                                 else:
                                     title = content[:50] + ("..." if len(content) > 50 else "")
-                                
+
                                 created_at = data.get("created_at", "")
                                 if created_at:
                                     try:
@@ -359,11 +366,7 @@ def get_recent_sessions(limit=10):
                 mtime = os.path.getmtime(folder)
                 date_str = datetime.fromtimestamp(mtime).strftime("%d %b %H:%M")
 
-            sessions.append({
-                "id": conv_id,
-                "title": title,
-                "date": date_str
-            })
+            sessions.append({"id": conv_id, "title": title, "date": date_str})
     except Exception as e:
         print(f"[ERROR] Failed to list sessions: {e}")
 
@@ -372,13 +375,15 @@ def get_recent_sessions(limit=10):
 
 def rename_session(conv_id: str, new_name: str) -> bool:
     """Updates the first USER_INPUT prompt in transcript.jsonl with new_name"""
-    transcript_file = os.path.join("/root/.gemini/antigravity-cli/brain", conv_id, ".system_generated", "logs", "transcript.jsonl")
+    transcript_file = os.path.join(
+        "/root/.gemini/antigravity-cli/brain", conv_id, ".system_generated", "logs", "transcript.jsonl"
+    )
     if not os.path.exists(transcript_file):
         return False
 
     try:
         lines = []
-        with open(transcript_file, 'r', encoding='utf-8') as f:
+        with open(transcript_file, "r", encoding="utf-8") as f:
             for i, line in enumerate(f):
                 if i == 0:
                     try:
@@ -386,7 +391,12 @@ def rename_session(conv_id: str, new_name: str) -> bool:
                         if data.get("type") == "USER_INPUT":
                             content = data.get("content", "")
                             if "<USER_REQUEST>" in content:
-                                new_content = re.sub(r'<USER_REQUEST>(.*?)</USER_REQUEST>', f'<USER_REQUEST>\n{new_name}\n</USER_REQUEST>', content, flags=re.DOTALL)
+                                new_content = re.sub(
+                                    r"<USER_REQUEST>(.*?)</USER_REQUEST>",
+                                    f"<USER_REQUEST>\n{new_name}\n</USER_REQUEST>",
+                                    content,
+                                    flags=re.DOTALL,
+                                )
                                 data["content"] = new_content
                             else:
                                 data["content"] = f"<USER_REQUEST>\n{new_name}\n</USER_REQUEST>"
@@ -396,7 +406,7 @@ def rename_session(conv_id: str, new_name: str) -> bool:
                         pass
                 lines.append(line)
 
-        with open(transcript_file, 'w', encoding='utf-8') as f:
+        with open(transcript_file, "w", encoding="utf-8") as f:
             f.writelines(lines)
         return True
     except Exception as e:
@@ -419,7 +429,9 @@ def delete_session(conv_id: str) -> bool:
 
 def get_full_session_history_formatted(conv_id: str, max_turns: int = 5) -> list:
     """Reads transcript.jsonl for conv_id and returns the last max_turns pairs safely"""
-    transcript_file = os.path.join("/root/.gemini/antigravity-cli/brain", conv_id, ".system_generated", "logs", "transcript.jsonl")
+    transcript_file = os.path.join(
+        "/root/.gemini/antigravity-cli/brain", conv_id, ".system_generated", "logs", "transcript.jsonl"
+    )
     if not os.path.exists(transcript_file):
         return []
 
@@ -427,17 +439,17 @@ def get_full_session_history_formatted(conv_id: str, max_turns: int = 5) -> list
     current_turn = {"user": "", "ai": ""}
 
     try:
-        with open(transcript_file, 'r', encoding='utf-8') as f:
+        with open(transcript_file, "r", encoding="utf-8") as f:
             for line in f:
                 try:
                     data = json.loads(line)
                     msg_type = data.get("type")
-                    
+
                     if msg_type == "USER_INPUT":
                         content = data.get("content", "")
-                        match = re.search(r'<USER_REQUEST>(.*?)</USER_REQUEST>', content, re.DOTALL)
+                        match = re.search(r"<USER_REQUEST>(.*?)</USER_REQUEST>", content, re.DOTALL)
                         raw_user = match.group(1).strip() if match else content.strip()
-                        
+
                         if current_turn["user"] or current_turn["ai"]:
                             turns.append(current_turn)
                             current_turn = {"user": "", "ai": ""}
@@ -487,13 +499,19 @@ def run_antigravity_stream(prompt: str, chat_id: int, workspace_dir: str = None,
 
         cmd = [
             config.AGY_PATH,
-            "-p", augmented_prompt,
-            "--add-dir", cwd,
-            "--model", model,
-            "--effort", effort,
-            "--mode", mode,
-            "--output-format", "stream-json",
-            "--dangerously-skip-permissions"
+            "-p",
+            augmented_prompt,
+            "--add-dir",
+            cwd,
+            "--model",
+            model,
+            "--effort",
+            effort,
+            "--mode",
+            mode,
+            "--output-format",
+            "stream-json",
+            "--dangerously-skip-permissions",
         ]
 
         conv_target = active_conversations.get(chat_id)
@@ -510,7 +528,7 @@ def run_antigravity_stream(prompt: str, chat_id: int, workspace_dir: str = None,
                 stderr=subprocess.STDOUT,
                 text=True,
                 bufsize=1,
-                start_new_session=True
+                start_new_session=True,
             )
 
             final_response = ""
@@ -523,7 +541,7 @@ def run_antigravity_stream(prompt: str, chat_id: int, workspace_dir: str = None,
             start_time = time.time()
             max_duration = 600  # 10 minutes timeout watchdog
 
-            for line in iter(process.stdout.readline, ''):
+            for line in iter(process.stdout.readline, ""):
                 if time.time() - start_time > max_duration:
                     process.kill()
                     return "execution cancelled: timed out after 10 minutes 😅", {}, []
@@ -546,7 +564,7 @@ def run_antigravity_stream(prompt: str, chat_id: int, workspace_dir: str = None,
                         step = data.get("step_update", {})
                         step_type = step.get("step_type", "")
                         step_counter += 1
-                        
+
                         if step.get("usage"):
                             turn_usage = step.get("usage")
 
@@ -563,7 +581,7 @@ def run_antigravity_stream(prompt: str, chat_id: int, workspace_dir: str = None,
                             target = args.get("TargetFile") or args.get("ImageName")
                             if target and os.path.exists(target):
                                 generated_files.append(target)
-                        
+
                         # Build simple, human-like activity status
                         raw_action = args.get("toolAction") or args.get("toolSummary")
                         target_file = args.get("TargetFile") or args.get("AbsolutePath") or args.get("SearchPath")
@@ -613,12 +631,15 @@ def run_antigravity_stream(prompt: str, chat_id: int, workspace_dir: str = None,
             usage_stats = get_token_usage(chat_id)
             if turn_usage and turn_usage.get("total_tokens"):
                 t_tok = turn_usage["total_tokens"]
-                usage_stats['session_tokens'] += t_tok
-                usage_stats['total_tokens'] += t_tok
+                usage_stats["session_tokens"] += t_tok
+                usage_stats["total_tokens"] += t_tok
 
-            resp_text = final_response.strip() if final_response and final_response.strip() else "sure, is there anything else I can help with?"
+            resp_text = (
+                final_response.strip()
+                if final_response and final_response.strip()
+                else "sure, is there anything else I can help with?"
+            )
             return resp_text, turn_usage, generated_files
-
 
         except Exception as e:
             active_processes.pop(chat_id, None)
@@ -643,12 +664,12 @@ def set_active_session(chat_id: int, conv_id: str):
     active_conversations[chat_id] = conv_id
     save_persistent_sessions()
     if chat_id not in chat_token_usage:
-        chat_token_usage[chat_id] = {'session_tokens': 0, 'total_tokens': 0}
-    chat_token_usage[chat_id]['session_tokens'] = calculate_session_tokens(conv_id)
+        chat_token_usage[chat_id] = {"session_tokens": 0, "total_tokens": 0}
+    chat_token_usage[chat_id]["session_tokens"] = calculate_session_tokens(conv_id)
 
 
 def reset_session(chat_id: int):
     active_conversations.pop(chat_id, None)
     save_persistent_sessions()
     if chat_id in chat_token_usage:
-        chat_token_usage[chat_id]['session_tokens'] = 0
+        chat_token_usage[chat_id]["session_tokens"] = 0

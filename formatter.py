@@ -1,5 +1,5 @@
-import re
 import html
+import re
 
 
 def markdown_to_telegram_html(text: str) -> str:
@@ -9,6 +9,7 @@ def markdown_to_telegram_html(text: str) -> str:
 
     # 1. Protect code blocks ```lang\ncode\n```
     code_blocks = []
+
     def save_code_block(match):
         lang = match.group(1) or ""
         code = match.group(2)
@@ -17,57 +18,58 @@ def markdown_to_telegram_html(text: str) -> str:
         if lang:
             replacement = f'<pre><code class="language-{lang}">{escaped_code}</code></pre>'
         else:
-            replacement = f'<pre><code>{escaped_code}</code></pre>'
+            replacement = f"<pre><code>{escaped_code}</code></pre>"
         code_blocks.append(replacement)
         return f"___CODE_BLOCK_{idx}___"
 
-    text = re.sub(r'```(\w+)?\n?(.*?)```', save_code_block, text, flags=re.DOTALL)
+    text = re.sub(r"```(\w+)?\n?(.*?)```", save_code_block, text, flags=re.DOTALL)
 
     # 2. Protect inline code `code`
     inline_codes = []
+
     def save_inline_code(match):
         code = match.group(1)
         escaped = html.escape(code)
         idx = len(inline_codes)
-        inline_codes.append(f'<code>{escaped}</code>')
+        inline_codes.append(f"<code>{escaped}</code>")
         return f"___INLINE_CODE_{idx}___"
 
-    text = re.sub(r'`([^`\n]+)`', save_inline_code, text)
+    text = re.sub(r"`([^`\n]+)`", save_inline_code, text)
 
     # 3. Escape raw HTML characters in remaining text
     text = html.escape(text)
 
     # 4. Format headers #, ##, ###
-    text = re.sub(r'^### (.*?)$', r'<b>🔹 \1</b>', text, flags=re.MULTILINE)
-    text = re.sub(r'^## (.*?)$', r'<b>📌 \1</b>', text, flags=re.MULTILINE)
-    text = re.sub(r'^# (.*?)$', r'<b>🚀 \1</b>', text, flags=re.MULTILINE)
+    text = re.sub(r"^### (.*?)$", r"<b>🔹 \1</b>", text, flags=re.MULTILINE)
+    text = re.sub(r"^## (.*?)$", r"<b>📌 \1</b>", text, flags=re.MULTILINE)
+    text = re.sub(r"^# (.*?)$", r"<b>🚀 \1</b>", text, flags=re.MULTILINE)
 
     # 5. Format Bold **text** and Italic *text*
-    text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
-    text = re.sub(r'\*(.*?)\*', r'<i>\1</i>', text)
+    text = re.sub(r"\*\*(.*?)\*\*", r"<b>\1</b>", text)
+    text = re.sub(r"(?<!\*)\*(?!\s)([^*\n]+?)(?<!\s)\*(?!\*)", r"<i>\1</i>", text)
 
     # 6. Format expandable blockquotes > text -> <blockquote expandable>text</blockquote>
-    lines = text.split('\n')
+    lines = text.split("\n")
     new_lines = []
     quote_lines = []
     in_quote = False
 
     for line in lines:
-        if line.startswith('&gt; ') or line.startswith('> '):
-            content = line[5:] if line.startswith('&gt; ') else line[2:]
+        if line.startswith("&gt; ") or line.startswith("> "):
+            content = line[5:] if line.startswith("&gt; ") else line[2:]
             quote_lines.append(content)
             in_quote = True
         else:
             if in_quote:
                 q_text = "\n".join(quote_lines)
-                new_lines.append(f'<blockquote expandable>{q_text}</blockquote>')
+                new_lines.append(f"<blockquote expandable>{q_text}</blockquote>")
                 quote_lines = []
                 in_quote = False
             new_lines.append(line)
 
     if in_quote:
         q_text = "\n".join(quote_lines)
-        new_lines.append(f'<blockquote expandable>{q_text}</blockquote>')
+        new_lines.append(f"<blockquote expandable>{q_text}</blockquote>")
 
     text = "\n".join(new_lines)
 
@@ -90,9 +92,4 @@ def format_error_card(error_msg: str, suggestion: str = None) -> str:
     """Builds a friendly casual error message"""
     clean_err = html.escape(error_msg)
     sug_text = f"\n\n💡 {suggestion}" if suggestion else ""
-    return (
-        f"oops, something went wrong 😅\n"
-        f"<code>{clean_err}</code>"
-        f"{sug_text}"
-    )
-
+    return f"oops, something went wrong 😅\n<code>{clean_err}</code>{sug_text}"

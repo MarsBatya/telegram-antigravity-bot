@@ -76,6 +76,24 @@ DEFAULT_WORKSPACE=/root/my-project
 
 ### 3. Install dependencies and run
 
+Using `uv` (recommended):
+
+```bash
+# Sync dependencies
+uv sync
+
+# Run tests
+uv run pytest
+
+# Format code
+uv run ruff format
+
+# Start bot
+uv run python bot.py
+```
+
+Or using standard `venv`:
+
 ```bash
 python3 -m venv venv
 source venv/bin/activate

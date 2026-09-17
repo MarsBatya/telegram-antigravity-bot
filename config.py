@@ -1,6 +1,6 @@
 import os
-import sys
 from pathlib import Path
+
 from dotenv import load_dotenv
 
 env_path = Path(__file__).parent / ".env"
@@ -23,7 +23,10 @@ DEFAULT_MODEL = "gemini-3.6-flash-high"
 DEFAULT_EFFORT = "high"
 DEFAULT_MODE = "accept-edits"
 
-os.makedirs(DEFAULT_WORKSPACE, exist_ok=True)
+try:
+    os.makedirs(DEFAULT_WORKSPACE, exist_ok=True)
+except OSError:
+    pass
 
 SYSTEM_PERSONA_PROMPT = """[SYSTEM DIRECTIVE - PERSONA & STYLE GUIDELINES]
 You must ALWAYS respond with the following persona and tone:
@@ -56,7 +59,6 @@ You must ALWAYS respond with the following persona and tone:
 - Prioritize a warm, natural conversational rhythm.
 - When the user asks for coding or technical work, complete it with 100% precision and correctness, but communicate the results in this friendly persona style.
 """
-
 
 
 def validate_config():
