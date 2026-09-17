@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 
 import config
 
-SESSION_FILE = os.path.join(os.path.dirname(__file__), "sessions.json")
+SESSION_FILE = getattr(config, "SESSION_FILE", os.path.join(os.path.dirname(__file__), "sessions.json"))
 
 active_conversations = {}
 active_workspaces = {}
@@ -26,12 +26,13 @@ chat_locks = {}
 SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
 
-def load_persistent_sessions():
+def load_persistent_sessions(file_path: str = None):
     """Loads active conversation mapping, workspaces, and chat settings from persistent disk storage"""
     global active_conversations, active_workspaces, active_settings
-    if os.path.exists(SESSION_FILE):
+    target_file = file_path or getattr(config, "SESSION_FILE", SESSION_FILE)
+    if os.path.exists(target_file):
         try:
-            with open(SESSION_FILE, "r", encoding="utf-8") as f:
+            with open(target_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 convs = data.get("conversations", {})
                 workspaces = data.get("workspaces", {})
@@ -50,15 +51,16 @@ def load_persistent_sessions():
     active_settings = {}
 
 
-def save_persistent_sessions():
+def save_persistent_sessions(file_path: str = None):
     """Saves active conversation mapping, workspaces, and settings to persistent disk storage"""
+    target_file = file_path or getattr(config, "SESSION_FILE", SESSION_FILE)
     try:
         data = {
             "conversations": {str(k): v for k, v in active_conversations.items()},
             "workspaces": {str(k): v for k, v in active_workspaces.items()},
             "settings": {str(k): v for k, v in active_settings.items()},
         }
-        with open(SESSION_FILE, "w", encoding="utf-8") as f:
+        with open(target_file, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
     except Exception as e:
         print(f"[ERROR] Saving sessions.json: {e}")
@@ -114,11 +116,10 @@ def get_token_usage(chat_id: int):
     return chat_token_usage[chat_id]
 
 
-def calculate_session_tokens(conv_id: str) -> int:
+def calculate_session_tokens(conv_id: str, brain_dir: str = None) -> int:
     """Calculates total tokens accumulated in a conversation session from transcript.jsonl"""
-    transcript_file = os.path.join(
-        "/root/.gemini/antigravity-cli/brain", conv_id, ".system_generated", "logs", "transcript.jsonl"
-    )
+    target_brain = brain_dir or getattr(config, "BRAIN_DIR", "/root/.gemini/antigravity-cli/brain")
+    transcript_file = os.path.join(target_brain, conv_id, ".system_generated", "logs", "transcript.jsonl")
     if not os.path.exists(transcript_file):
         return 0
 
@@ -169,14 +170,16 @@ def parse_reset_time(iso_str: str) -> str:
         return ""
 
 
-def fetch_live_user_quota_summary() -> str:
+def fetch_live_user_quota_summary(token_file: str = None) -> str:
     """Fetches real-time Models & Quota summary directly from Google Cloud Code PA API"""
-    token_file = "/root/.gemini/antigravity-cli/antigravity-oauth-token"
-    if not os.path.exists(token_file):
+    target_token_file = token_file or getattr(
+        config, "OAUTH_TOKEN_PATH", "/root/.gemini/antigravity-cli/antigravity-oauth-token"
+    )
+    if not os.path.exists(target_token_file):
         return "⚠️ <b>OAuth token file not found on server.</b>"
 
     try:
-        with open(token_file, "r", encoding="utf-8") as f:
+        with open(target_token_file, "r", encoding="utf-8") as f:
             token_data = json.load(f)
 
         access_token = token_data.get("token", {}).get("access_token")
@@ -239,14 +242,16 @@ def fetch_live_user_quota_summary() -> str:
         return f"⚠️ <b>Failed to fetch live quota data:</b> <code>{str(e)}</code>"
 
 
-def fetch_available_models_live() -> list:
+def fetch_available_models_live(token_file: str = None) -> list:
     """Fetches list of active models directly from Google Cloud Code API"""
-    token_file = "/root/.gemini/antigravity-cli/antigravity-oauth-token"
-    if not os.path.exists(token_file):
+    target_token_file = token_file or getattr(
+        config, "OAUTH_TOKEN_PATH", "/root/.gemini/antigravity-cli/antigravity-oauth-token"
+    )
+    if not os.path.exists(target_token_file):
         return []
 
     try:
-        with open(token_file, "r", encoding="utf-8") as f:
+        with open(target_token_file, "r", encoding="utf-8") as f:
             token_data = json.load(f)
 
         access_token = token_data.get("token", {}).get("access_token")
@@ -317,16 +322,18 @@ def cancel_chat_process(chat_id: int) -> bool:
     return False
 
 
-def get_recent_sessions(limit=10):
+def get_recent_sessions(limit=10, brain_dir: str = None):
     """Scans brain directory for recent Antigravity conversation sessions"""
-    brain_dir = "/root/.gemini/antigravity-cli/brain"
-    if not os.path.exists(brain_dir):
+    target_brain = brain_dir or getattr(config, "BRAIN_DIR", "/root/.gemini/antigravity-cli/brain")
+    if not os.path.exists(target_brain):
         return []
 
     sessions = []
     try:
         entries = [
-            os.path.join(brain_dir, d) for d in os.listdir(brain_dir) if os.path.isdir(os.path.join(brain_dir, d))
+            os.path.join(target_brain, d)
+            for d in os.listdir(target_brain)
+            if os.path.isdir(os.path.join(target_brain, d))
         ]
         entries.sort(key=lambda x: os.path.getmtime(x), reverse=True)
 
@@ -373,11 +380,10 @@ def get_recent_sessions(limit=10):
     return sessions
 
 
-def rename_session(conv_id: str, new_name: str) -> bool:
+def rename_session(conv_id: str, new_name: str, brain_dir: str = None) -> bool:
     """Updates the first USER_INPUT prompt in transcript.jsonl with new_name"""
-    transcript_file = os.path.join(
-        "/root/.gemini/antigravity-cli/brain", conv_id, ".system_generated", "logs", "transcript.jsonl"
-    )
+    target_brain = brain_dir or getattr(config, "BRAIN_DIR", "/root/.gemini/antigravity-cli/brain")
+    transcript_file = os.path.join(target_brain, conv_id, ".system_generated", "logs", "transcript.jsonl")
     if not os.path.exists(transcript_file):
         return False
 
@@ -414,9 +420,10 @@ def rename_session(conv_id: str, new_name: str) -> bool:
         return False
 
 
-def delete_session(conv_id: str) -> bool:
+def delete_session(conv_id: str, brain_dir: str = None) -> bool:
     """Deletes conversation folder from brain directory"""
-    folder = os.path.join("/root/.gemini/antigravity-cli/brain", conv_id)
+    target_brain = brain_dir or getattr(config, "BRAIN_DIR", "/root/.gemini/antigravity-cli/brain")
+    folder = os.path.join(target_brain, conv_id)
     if os.path.exists(folder):
         try:
             shutil.rmtree(folder)
@@ -427,11 +434,10 @@ def delete_session(conv_id: str) -> bool:
     return False
 
 
-def get_full_session_history_formatted(conv_id: str, max_turns: int = 5) -> list:
+def get_full_session_history_formatted(conv_id: str, max_turns: int = 5, brain_dir: str = None) -> list:
     """Reads transcript.jsonl for conv_id and returns the last max_turns pairs safely"""
-    transcript_file = os.path.join(
-        "/root/.gemini/antigravity-cli/brain", conv_id, ".system_generated", "logs", "transcript.jsonl"
-    )
+    target_brain = brain_dir or getattr(config, "BRAIN_DIR", "/root/.gemini/antigravity-cli/brain")
+    transcript_file = os.path.join(target_brain, conv_id, ".system_generated", "logs", "transcript.jsonl")
     if not os.path.exists(transcript_file):
         return []
 

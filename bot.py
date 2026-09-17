@@ -16,11 +16,8 @@ import config
 import formatter
 import stream_runner
 
-if not config.validate_config():
-    print("[ERROR] Please configure .env before starting the bot.")
-    sys.exit(1)
-
-bot = telebot.TeleBot(config.BOT_TOKEN, parse_mode="HTML")
+_bot_token = config.BOT_TOKEN if (config.BOT_TOKEN and ":" in config.BOT_TOKEN) else "123456:TEST_DUMMY_TOKEN"
+bot = telebot.TeleBot(_bot_token, parse_mode="HTML")
 
 
 class PathMapper:
@@ -48,8 +45,9 @@ class PathMapper:
 path_mapper = PathMapper()
 
 
-def register_telegram_commands():
+def register_telegram_commands(target_bot=None):
     """Registers ALL 18 slash commands into Telegram UI dropdown autocomplete menu"""
+    active_bot = target_bot or bot
     commands = [
         types.BotCommand("start", "🚀 Show main menu & bot guide"),
         types.BotCommand("model", "🤖 Switch Model (Gemini/Claude/GPT-OSS)"),
@@ -71,13 +69,12 @@ def register_telegram_commands():
         types.BotCommand("help", "❓ Full command list & help"),
     ]
     try:
-        bot.set_my_commands(commands)
+        active_bot.set_my_commands(commands)
         print("✅ ALL 18 Telegram Slash Commands registered successfully into dropdown menu!")
+        return True
     except Exception as e:
         print(f"[WARNING] Failed to register slash commands with Telegram: {e}")
-
-
-register_telegram_commands()
+        return False
 
 
 def make_progress_bar(percent: float, length: int = 10) -> str:
@@ -995,7 +992,7 @@ def handle_media_prompt(message):
 
         if file_info:
             downloaded = bot.download_file(file_info.file_path)
-            temp_dir = "/tmp/antigravity_uploads"
+            temp_dir = getattr(config, "TEMP_UPLOAD_DIR", "/tmp/antigravity_uploads")
             os.makedirs(temp_dir, exist_ok=True)
             saved_path = os.path.join(temp_dir, file_name)
             with open(saved_path, "wb") as f:
@@ -1119,7 +1116,13 @@ def handle_open_quota_info(call):
     send_usage(call.message)
 
 
-if __name__ == "__main__":
+def main():
+    if not config.validate_config():
+        print("[ERROR] Please configure .env before starting the bot.")
+        sys.exit(1)
+
+    register_telegram_commands(bot)
+
     print("🚀 Starting Antigravity AI Agent Bot (v3.5 Polished UX & Dropdown Menu)...")
     print(f"📂 Default Workspace Dir: {config.DEFAULT_WORKSPACE}")
     print(f"🔒 Allowed User IDs: {config.ALLOWED_USER_IDS}")
@@ -1132,3 +1135,7 @@ if __name__ == "__main__":
 
     print("🤖 Bot is active & polling for messages...")
     bot.infinity_polling(timeout=20, long_polling_timeout=20)
+
+
+if __name__ == "__main__":
+    main()

@@ -6,15 +6,21 @@ from dotenv import load_dotenv
 env_path = Path(__file__).parent / ".env"
 load_dotenv(dotenv_path=env_path)
 
+
+def parse_allowed_user_ids(raw_str: str) -> list[int]:
+    """Parses a comma-separated string of user IDs into a list of integers."""
+    ids = []
+    if raw_str:
+        for uid in raw_str.split(","):
+            uid_clean = uid.strip()
+            if uid_clean.isdigit():
+                ids.append(int(uid_clean))
+    return ids
+
+
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 ALLOWED_USERS_RAW = os.getenv("ALLOWED_USER_IDS", "").strip()
-
-ALLOWED_USER_IDS = []
-if ALLOWED_USERS_RAW:
-    for uid in ALLOWED_USERS_RAW.split(","):
-        uid_clean = uid.strip()
-        if uid_clean.isdigit():
-            ALLOWED_USER_IDS.append(int(uid_clean))
+ALLOWED_USER_IDS = parse_allowed_user_ids(ALLOWED_USERS_RAW)
 
 AGY_PATH = os.getenv("AGY_PATH", "/root/.local/bin/agy").strip()
 DEFAULT_WORKSPACE = os.getenv("DEFAULT_WORKSPACE", "/root/my-project").strip()
@@ -22,6 +28,11 @@ DEFAULT_WORKSPACE = os.getenv("DEFAULT_WORKSPACE", "/root/my-project").strip()
 DEFAULT_MODEL = "gemini-3.6-flash-high"
 DEFAULT_EFFORT = "high"
 DEFAULT_MODE = "accept-edits"
+
+BRAIN_DIR = os.getenv("BRAIN_DIR", "/root/.gemini/antigravity-cli/brain").strip()
+OAUTH_TOKEN_PATH = os.getenv("OAUTH_TOKEN_PATH", "/root/.gemini/antigravity-cli/antigravity-oauth-token").strip()
+SESSION_FILE = os.getenv("SESSION_FILE", os.path.join(os.path.dirname(__file__), "sessions.json")).strip()
+TEMP_UPLOAD_DIR = os.getenv("TEMP_UPLOAD_DIR", "/tmp/antigravity_uploads").strip()
 
 try:
     os.makedirs(DEFAULT_WORKSPACE, exist_ok=True)
@@ -61,9 +72,12 @@ You must ALWAYS respond with the following persona and tone:
 """
 
 
-def validate_config():
+def validate_config(token: str = None, allowed_users: list = None) -> bool:
+    target_token = BOT_TOKEN if token is None else token
+    target_users = ALLOWED_USER_IDS if allowed_users is None else allowed_users
+
     errors = []
-    if not BOT_TOKEN or BOT_TOKEN == "your_bot_token_here":
+    if not target_token or target_token == "your_bot_token_here":
         errors.append("TELEGRAM_BOT_TOKEN is not set in .env")
 
     if errors:
@@ -72,6 +86,6 @@ def validate_config():
             print(f"  - {err}")
         return False
 
-    if not ALLOWED_USER_IDS:
+    if not target_users:
         print("[WARNING] ALLOWED_USER_IDS is empty in .env. Bot will report Telegram ID to user on first /start.")
     return True

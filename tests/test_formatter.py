@@ -83,6 +83,71 @@ def test_format_error_card():
     assert "💡 try /new" in card
 
 
+def test_format_error_card_without_suggestion():
+    card = format_error_card("fatal error occurred")
+    assert "<code>fatal error occurred</code>" in card
+    assert "💡" not in card
+
+
+def test_format_error_card_html_escape():
+    card = format_error_card("<script>alert('xss')</script>")
+    assert "&lt;script&gt;alert(&#x27;xss&#x27;)&lt;/script&gt;" in card
+
+
+def test_code_block_without_language():
+    md = "```\nplain text code\n```"
+    html_out = markdown_to_telegram_html(md)
+    assert "<pre><code>plain text code</code></pre>" in html_out
+
+
+def test_code_block_preserves_inner_markdown_and_escapes_html():
+    md = "```python\n# This is not a header\nx = <b>test</b> & 'value'\n**not bold**\n```"
+    html_out = markdown_to_telegram_html(md)
+    assert '<pre><code class="language-python">' in html_out
+    assert "# This is not a header" in html_out
+    assert "&lt;b&gt;test&lt;/b&gt; &amp; &#x27;value&#x27;" in html_out
+    assert "**not bold**" in html_out
+    assert "<b>" not in html_out.split("<pre>")[1].split("</pre>")[0]
+
+
+def test_inline_code_preserves_inner_markdown_and_escapes_html():
+    md = "Use `def foo(x < 5 & y > 2): **not bold**` inline."
+    html_out = markdown_to_telegram_html(md)
+    assert "<code>def foo(x &lt; 5 &amp; y &gt; 2): **not bold**</code>" in html_out
+
+
+def test_raw_html_escaped():
+    md = 'This has <script>bad</script> and & and "quotes"'
+    html_out = markdown_to_telegram_html(md)
+    assert "<script>" not in html_out
+    assert "&lt;script&gt;bad&lt;/script&gt;" in html_out
+    assert "&amp;" in html_out
+
+
+def test_multiple_blockquotes_separated_by_text():
+    md = "> First quote\n> Second line\n\nSome normal text\n\n> Another quote"
+    html_out = markdown_to_telegram_html(md)
+    assert html_out.count("<blockquote expandable>") == 2
+    assert "First quote\nSecond line" in html_out
+    assert "Some normal text" in html_out
+    assert "Another quote" in html_out
+
+
+def test_blockquote_with_html_chars():
+    md = "> Quotes with <tags> & 'chars'"
+    html_out = markdown_to_telegram_html(md)
+    assert "<blockquote expandable>" in html_out
+    assert "&lt;tags&gt; &amp; &#x27;chars&#x27;" in html_out
+
+
+def test_non_header_hashes():
+    md = "#not-a-header\nThis is #1 item in list"
+    html_out = markdown_to_telegram_html(md)
+    assert "🚀" not in html_out
+    assert "#not-a-header" in html_out
+    assert "#1 item" in html_out
+
+
 if __name__ == "__main__":
     result = markdown_to_telegram_html(sample_markdown)
     print("=== RESULT TELEGRAM HTML ===")
