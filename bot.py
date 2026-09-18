@@ -1,5 +1,6 @@
 import asyncio
 import sys
+from typing import Any
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -76,6 +77,7 @@ from handlers.settings import (
 )
 from middlewares import AuthMiddleware
 import stream_runner
+from stream_runner import cleanup_all_active_processes
 
 _bot_token = (
     config.BOT_TOKEN
@@ -110,6 +112,15 @@ def setup_dispatcher(target_dp: Dispatcher) -> None:
 setup_dispatcher(dp)
 
 
+async def on_shutdown(*args: Any, **kwargs: Any) -> None:
+    print("🛑 Shutting down bot, terminating active CLI processes...")
+    stream_runner.cleanup_all_active_processes()
+    await bot.session.close()
+
+
+dp.shutdown.register(on_shutdown)
+
+
 async def main() -> None:
     if not config.validate_config():
         print("[ERROR] Please configure .env before starting the bot.")
@@ -136,6 +147,7 @@ __all__ = [
     "agent_runner",
     "bot",
     "change_workspace",
+    "cleanup_all_active_processes",
     "delete_session_command",
     "dp",
     "execute_goal",
@@ -160,6 +172,7 @@ __all__ = [
     "is_authorized",
     "main",
     "make_progress_bar",
+    "on_shutdown",
     "path_mapper",
     "process_agent_prompt",
     "process_custom_agent_prompt",

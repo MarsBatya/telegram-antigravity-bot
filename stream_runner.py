@@ -1,17 +1,19 @@
 import base64
 import contextlib
+from datetime import datetime, timezone
+import html
 import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import threading
 import time
+from typing import Any
 import urllib.error
 import urllib.request
 from collections.abc import Callable
-from datetime import datetime, timezone
-from typing import Any
 
 import config
 
@@ -29,6 +31,7 @@ active_processes = {}  # chat_id -> subprocess.Popen instance
 
 # Per-chat task queue and lock to prevent concurrent process collisions
 chat_locks = {}
+_session_file_lock = threading.Lock()
 
 SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
@@ -39,42 +42,50 @@ def load_persistent_sessions(file_path: str | None = None) -> None:
     """
     global active_conversations, active_workspaces, active_settings
     target_file = file_path or getattr(config, "SESSION_FILE", SESSION_FILE)
-    if os.path.exists(target_file):
-        try:
-            with open(target_file, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                convs = data.get("conversations", {})
-                workspaces = data.get("workspaces", {})
-                settings = data.get("settings", {})
-                if not convs and not workspaces and isinstance(data, dict):
-                    convs = data
+    with _session_file_lock:
+        if os.path.exists(target_file):
+            try:
+                with open(target_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    convs = data.get("conversations", {})
+                    workspaces = data.get("workspaces", {})
+                    settings = data.get("settings", {})
+                    if not convs and not workspaces and isinstance(data, dict):
+                        convs = data
 
-                active_conversations = {int(k): v for k, v in convs.items()}
-                active_workspaces = {int(k): v for k, v in workspaces.items()}
-                active_settings = {int(k): v for k, v in settings.items()}
-                return
-        except Exception as e:
-            print(f"[ERROR] Loading sessions.json: {e}")
-    active_conversations = {}
-    active_workspaces = {}
-    active_settings = {}
+                    active_conversations = {int(k): v for k, v in convs.items()}
+                    active_workspaces = {int(k): v for k, v in workspaces.items()}
+                    active_settings = {int(k): v for k, v in settings.items()}
+                    return
+            except Exception as e:
+                print(f"[ERROR] Loading sessions.json: {e}")
+        active_conversations = {}
+        active_workspaces = {}
+        active_settings = {}
 
 
 def save_persistent_sessions(file_path: str | None = None) -> None:
     """Saves active conversation mapping, workspaces, and settings
-    to persistent disk storage.
+    to persistent disk storage atomically.
     """
     target_file = file_path or getattr(config, "SESSION_FILE", SESSION_FILE)
-    try:
-        data = {
-            "conversations": {str(k): v for k, v in active_conversations.items()},
-            "workspaces": {str(k): v for k, v in active_workspaces.items()},
-            "settings": {str(k): v for k, v in active_settings.items()},
-        }
-        with open(target_file, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
-    except Exception as e:
-        print(f"[ERROR] Saving sessions.json: {e}")
+    with _session_file_lock:
+        try:
+            target_dir = os.path.dirname(os.path.abspath(target_file))
+            os.makedirs(target_dir, exist_ok=True)
+            data = {
+                "conversations": {str(k): v for k, v in active_conversations.items()},
+                "workspaces": {str(k): v for k, v in active_workspaces.items()},
+                "settings": {str(k): v for k, v in active_settings.items()},
+            }
+            temp_file = target_file + f".tmp.{os.getpid()}.{threading.get_ident()}"
+            with open(temp_file, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(temp_file, target_file)
+        except Exception as e:
+            print(f"[ERROR] Saving sessions.json: {e}")
 
 
 load_persistent_sessions()
@@ -142,7 +153,7 @@ def calculate_session_tokens(conv_id: str, brain_dir: str | None = None) -> int:
     target_brain = brain_dir or getattr(
         config,
         "BRAIN_DIR",
-        "/root/.gemini/antigravity-cli/brain",
+        os.path.expanduser("~/.gemini/antigravity-cli/brain"),
     )
     transcript_file = os.path.join(
         target_brain,
@@ -205,7 +216,7 @@ def fetch_live_user_quota_summary(token_file: str | None = None) -> str:
     target_token_file = token_file or getattr(
         config,
         "OAUTH_TOKEN_PATH",
-        "/root/.gemini/antigravity-cli/antigravity-oauth-token",
+        os.path.expanduser("~/.gemini/antigravity-cli/antigravity-oauth-token"),
     )
     if not os.path.exists(target_token_file):
         return "⚠️ <b>OAuth token file not found on server.</b>"
@@ -279,7 +290,7 @@ def fetch_available_models_live(
     target_token_file = token_file or getattr(
         config,
         "OAUTH_TOKEN_PATH",
-        "/root/.gemini/antigravity-cli/antigravity-oauth-token",
+        os.path.expanduser("~/.gemini/antigravity-cli/antigravity-oauth-token"),
     )
     if not os.path.exists(target_token_file):
         return []
@@ -348,20 +359,48 @@ def fetch_bot_logs(lines_count: int = 30) -> str:
         return f"❌ Failed to fetch logs: {e}"
 
 
+def _terminate_process_and_group(proc: subprocess.Popen[Any]) -> None:
+    """Terminates or kills a subprocess and its entire process group safely."""
+    pid = getattr(proc, "pid", None)
+    if isinstance(pid, int):
+        with contextlib.suppress(Exception):
+            pgid = os.getpgid(pid)
+            os.killpg(pgid, signal.SIGTERM)
+    with contextlib.suppress(Exception):
+        proc.terminate()
+    time.sleep(0.3)
+    if proc.poll() is None:
+        if isinstance(pid, int):
+            with contextlib.suppress(Exception):
+                pgid = os.getpgid(pid)
+                os.killpg(pgid, signal.SIGKILL)
+        with contextlib.suppress(Exception):
+            proc.kill()
+
+
 def cancel_chat_process(chat_id: int) -> bool:
-    """Cancels the active agy child process for a given chat_id"""
+    """Cancels the active agy child process and process group for a given chat_id."""
     proc = active_processes.get(chat_id)
     if proc and proc.poll() is None:
         try:
-            proc.terminate()
-            time.sleep(0.5)
-            if proc.poll() is None:
-                proc.kill()
+            _terminate_process_and_group(proc)
+            active_processes.pop(chat_id, None)
             return True
         except Exception as e:
             print(f"[ERROR] Failed to kill process for chat {chat_id}: {e}")
             return False
     return False
+
+
+def cleanup_all_active_processes() -> None:
+    """Terminates all running subprocesses and their process groups across all chats."""
+    for chat_id, proc in list(active_processes.items()):
+        try:
+            if proc.poll() is None:
+                _terminate_process_and_group(proc)
+        except Exception as e:
+            print(f"[ERROR] Failed to cleanup process for chat {chat_id}: {e}")
+    active_processes.clear()
 
 
 def _parse_session_entry(folder: str) -> dict[str, str]:
@@ -417,7 +456,7 @@ def get_recent_sessions(
     target_brain = brain_dir or getattr(
         config,
         "BRAIN_DIR",
-        "/root/.gemini/antigravity-cli/brain",
+        os.path.expanduser("~/.gemini/antigravity-cli/brain"),
     )
     if not os.path.exists(target_brain):
         return []
@@ -444,7 +483,7 @@ def rename_session(conv_id: str, new_name: str, brain_dir: str | None = None) ->
     target_brain = brain_dir or getattr(
         config,
         "BRAIN_DIR",
-        "/root/.gemini/antigravity-cli/brain",
+        os.path.expanduser("~/.gemini/antigravity-cli/brain"),
     )
     transcript_file = os.path.join(
         target_brain,
@@ -458,9 +497,10 @@ def rename_session(conv_id: str, new_name: str, brain_dir: str | None = None) ->
 
     try:
         lines = []
+        renamed = False
         with open(transcript_file, "r", encoding="utf-8") as f:
-            for i, line in enumerate(f):
-                if i == 0:
+            for line in f:
+                if not renamed:
                     with contextlib.suppress(Exception):
                         data = json.loads(line)
                         if data.get("type") == "USER_INPUT":
@@ -478,8 +518,12 @@ def rename_session(conv_id: str, new_name: str, brain_dir: str | None = None) ->
                                     f"<USER_REQUEST>\n{new_name}\n</USER_REQUEST>"
                                 )
                             lines.append(json.dumps(data) + "\n")
+                            renamed = True
                             continue
                 lines.append(line)
+
+        if not renamed:
+            return False
 
         with open(transcript_file, "w", encoding="utf-8") as f:
             f.writelines(lines)
@@ -494,7 +538,7 @@ def delete_session(conv_id: str, brain_dir: str | None = None) -> bool:
     target_brain = brain_dir or getattr(
         config,
         "BRAIN_DIR",
-        "/root/.gemini/antigravity-cli/brain",
+        os.path.expanduser("~/.gemini/antigravity-cli/brain"),
     )
     folder = os.path.join(target_brain, conv_id)
     if os.path.exists(folder):
@@ -516,7 +560,7 @@ def get_full_session_history_formatted(
     target_brain = brain_dir or getattr(
         config,
         "BRAIN_DIR",
-        "/root/.gemini/antigravity-cli/brain",
+        os.path.expanduser("~/.gemini/antigravity-cli/brain"),
     )
     transcript_file = os.path.join(
         target_brain,
@@ -662,9 +706,10 @@ def run_antigravity_stream(  # noqa: C901
                 bufsize=1,
                 start_new_session=True,
             )
+            active_processes[chat_id] = process
 
             final_response = ""
-            last_update_time = 0
+            last_update_time = 0.0
             current_activity = "thinking..."
             turn_usage = {}
             generated_files = []
@@ -673,77 +718,86 @@ def run_antigravity_stream(  # noqa: C901
             start_time = time.time()
             max_duration = 600  # 10 minutes timeout watchdog
 
-            for line in iter(process.stdout.readline, ""):
-                if time.time() - start_time > max_duration:
-                    process.kill()
-                    return "execution cancelled: timed out after 10 minutes 😅", {}, []
-
-                line = line.strip()
-                if not line:
-                    continue
-
-                with contextlib.suppress(json.JSONDecodeError):
-                    data = json.loads(line)
-                    event_type = data.get("event")
-
-                    if event_type == "init":
-                        conv_id = data.get("conversation_id")
-                        if conv_id:
-                            active_conversations[chat_id] = conv_id
-                            save_persistent_sessions()
-
-                    elif event_type == "step_update":
-                        step = data.get("step_update", {})
-                        step_type = step.get("step_type", "")
-                        step_counter += 1
-
-                        if step.get("usage"):
-                            turn_usage = step.get("usage")
-
-                        if step_type == "agent_response":
-                            delta = (
-                                step.get("text_delta")
-                                or step.get("response")
-                                or step.get("text")
-                            )
-                            if delta:
-                                final_response += delta
-
-                        tool_call = step.get("tool_call") or step.get("tool") or {}
-                        tool_name = tool_call.get("name", step_type)
-                        args = tool_call.get("args", {})
-
-                        if tool_name in [
-                            "write_to_file",
-                            "generate_image",
-                            "multi_replace_file_content",
-                        ]:
-                            target = args.get("TargetFile") or args.get("ImageName")
-                            if target and os.path.exists(target):
-                                generated_files.append(target)
-
-                        current_activity = _determine_stream_activity(
-                            tool_name,
-                            args,
+            try:
+                for line in iter(process.stdout.readline, ""):
+                    if time.time() - start_time > max_duration:
+                        _terminate_process_and_group(process)
+                        return (
+                            "execution cancelled: timed out after 10 minutes 😅",
+                            {},
+                            [],
                         )
 
-                        now = time.time()
-                        if progress_callback and (now - last_update_time >= 1.2):
-                            with contextlib.suppress(Exception):
-                                progress_callback(f"<i>{current_activity}</i>")
-                            last_update_time = now
+                    line = line.strip()
+                    if not line:
+                        continue
 
-                    elif event_type == "result":
-                        res = data.get("result", {})
-                        res_text = res.get("response", "")
-                        if res_text:
-                            final_response = res_text
-                        if res.get("usage"):
-                            turn_usage = res.get("usage")
+                    with contextlib.suppress(json.JSONDecodeError):
+                        data = json.loads(line)
+                        event_type = data.get("event")
 
-            process.stdout.close()
-            process.wait()
-            active_processes.pop(chat_id, None)
+                        if event_type == "init":
+                            conv_id = data.get("conversation_id")
+                            if conv_id:
+                                active_conversations[chat_id] = conv_id
+                                save_persistent_sessions()
+
+                        elif event_type == "step_update":
+                            step = data.get("step_update", {})
+                            step_type = step.get("step_type", "")
+                            step_counter += 1
+
+                            if step.get("usage"):
+                                turn_usage = step.get("usage")
+
+                            if step_type == "agent_response":
+                                delta = (
+                                    step.get("text_delta")
+                                    or step.get("response")
+                                    or step.get("text")
+                                )
+                                if delta:
+                                    final_response += delta
+
+                            tool_call = step.get("tool_call") or step.get("tool") or {}
+                            tool_name = tool_call.get("name", step_type)
+                            args = tool_call.get("args", {})
+
+                            if tool_name in [
+                                "write_to_file",
+                                "generate_image",
+                                "multi_replace_file_content",
+                            ]:
+                                target = args.get("TargetFile") or args.get("ImageName")
+                                if target and os.path.exists(target):
+                                    generated_files.append(target)
+
+                            current_activity = _determine_stream_activity(
+                                tool_name,
+                                args,
+                            )
+
+                            now = time.time()
+                            if progress_callback and (now - last_update_time >= 1.2):
+                                with contextlib.suppress(Exception):
+                                    progress_callback(
+                                        f"<i>{html.escape(current_activity)}</i>",
+                                    )
+                                last_update_time = now
+
+                        elif event_type == "result":
+                            res = data.get("result", {})
+                            res_text = res.get("response", "")
+                            if res_text:
+                                final_response = res_text
+                            if res.get("usage"):
+                                turn_usage = res.get("usage")
+            finally:
+                if process.stdout and not process.stdout.closed:
+                    process.stdout.close()
+                with contextlib.suppress(Exception):
+                    process.wait()
+                active_processes.pop(chat_id, None)
 
             if not active_conversations.get(chat_id):
                 active_conversations[chat_id] = True

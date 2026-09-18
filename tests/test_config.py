@@ -1,3 +1,6 @@
+import os
+from unittest.mock import patch
+
 import config
 
 
@@ -42,3 +45,29 @@ def test_config_constants():
     assert config.DEFAULT_EFFORT == "high"
     assert config.DEFAULT_MODE == "accept-edits"
     assert "SYSTEM DIRECTIVE" in config.SYSTEM_PERSONA_PROMPT
+
+
+def test_get_default_agy_path():
+    with patch.dict("os.environ", {"AGY_PATH": "/custom/path/to/agy"}):
+        assert config._get_default_agy_path() == "/custom/path/to/agy"
+
+    with (
+        patch.dict("os.environ", {"AGY_PATH": ""}),
+        patch("shutil.which", return_value="/usr/bin/agy"),
+    ):
+        assert config._get_default_agy_path() == "/usr/bin/agy"
+
+    with (
+        patch.dict("os.environ", {"AGY_PATH": ""}),
+        patch("shutil.which", return_value=None),
+        patch("os.path.exists", return_value=True),
+    ):
+        assert ".local/bin/agy" in config._get_default_agy_path()
+
+
+def test_default_paths_portable():
+    home = os.path.expanduser("~")
+    if home != "/root":
+        assert "/root/" not in config.DEFAULT_WORKSPACE
+        assert "/root/" not in config.BRAIN_DIR
+        assert "/root/" not in config.OAUTH_TOKEN_PATH

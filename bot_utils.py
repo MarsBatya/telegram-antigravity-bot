@@ -146,6 +146,71 @@ async def reply_safe(
             return None
 
 
+_HTML_TAG_RE = re.compile(r"<\/?([a-zA-Z0-9-]+)(?:\s+[^>]*?)?\/?>")
+
+
+def _chunk_text_safely(text: str, max_length: int = 3800) -> list[str]:
+    """Splits text into chunks strictly under max_length, breaking oversized lines."""
+    raw_lines = text.split("\n")
+    lines: list[str] = []
+    for line in raw_lines:
+        if len(line) <= max_length:
+            lines.append(line)
+        else:
+            for i in range(0, len(line), max_length):
+                lines.append(line[i : i + max_length])
+
+    chunks: list[str] = []
+    curr_chunk: list[str] = []
+    curr_len = 0
+
+    for line in lines:
+        added_len = len(line) + (1 if curr_chunk else 0)
+        if curr_len + added_len > max_length:
+            if curr_chunk:
+                chunks.append("\n".join(curr_chunk))
+            curr_chunk = [line]
+            curr_len = len(line)
+        else:
+            curr_chunk.append(line)
+            curr_len += added_len
+
+    if curr_chunk:
+        chunks.append("\n".join(curr_chunk))
+    return chunks
+
+
+def balance_html_chunks(chunks: list[str]) -> list[str]:
+    """Ensures each chunk has balanced HTML tags so Telegram parsing never crashes."""
+    balanced_chunks: list[str] = []
+    open_stack: list[tuple[str, str]] = []
+
+    for chunk in chunks:
+        # Re-open any tags carried over from the previous chunk
+        prefix = "".join(full_tag for _, full_tag in open_stack)
+        current_content = prefix + chunk
+
+        current_stack: list[tuple[str, str]] = []
+        for match in _HTML_TAG_RE.finditer(current_content):
+            raw_tag = match.group(0)
+            tag_name = match.group(1).lower()
+            if raw_tag.endswith("/>"):
+                continue
+            if raw_tag.startswith("</"):
+                for i in range(len(current_stack) - 1, -1, -1):
+                    if current_stack[i][0] == tag_name:
+                        current_stack.pop(i)
+                        break
+            else:
+                current_stack.append((tag_name, raw_tag))
+
+        closing = "".join(f"</{tag}>" for tag, _ in reversed(current_stack))
+        balanced_chunks.append(current_content + closing)
+        open_stack = current_stack
+
+    return balanced_chunks
+
+
 async def send_long_message(  # noqa: C901
     bot: Bot,
     chat_id: int,
@@ -153,7 +218,7 @@ async def send_long_message(  # noqa: C901
     reply_markup: InlineKeyboardMarkup | ReplyKeyboardMarkup | None = None,
 ) -> Message | None:
     """Sends message cleanly in one bubble if <= 3800 chars,
-    or splits safely by lines if larger.
+    or splits safely by lines and balances HTML tags if larger.
     """
     if not text or not text.strip():
         return None
@@ -180,23 +245,8 @@ async def send_long_message(  # noqa: C901
             except Exception:
                 return None
 
-    lines = text.split("\n")
-    chunks: list[str] = []
-    current_chunk: list[str] = []
-    current_len = 0
-
-    for line in lines:
-        if current_len + len(line) + 1 > max_length:
-            if current_chunk:
-                chunks.append("\n".join(current_chunk))
-            current_chunk = [line]
-            current_len = len(line)
-        else:
-            current_chunk.append(line)
-            current_len += len(line) + 1
-
-    if current_chunk:
-        chunks.append("\n".join(current_chunk))
+    raw_chunks = _chunk_text_safely(text, max_length=max_length)
+    chunks = balance_html_chunks(raw_chunks)
 
     last_msg: Message | None = None
     for i, chunk in enumerate(chunks):

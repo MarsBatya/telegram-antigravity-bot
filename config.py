@@ -1,4 +1,5 @@
 import os
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -23,17 +24,35 @@ BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 ALLOWED_USERS_RAW = os.getenv("ALLOWED_USER_IDS", "").strip()
 ALLOWED_USER_IDS = parse_allowed_user_ids(ALLOWED_USERS_RAW)
 
-AGY_PATH = os.getenv("AGY_PATH", "/root/.local/bin/agy").strip()
-DEFAULT_WORKSPACE = os.getenv("DEFAULT_WORKSPACE", "/root/my-project").strip()
+
+def _get_default_agy_path() -> str:
+    env_val = os.getenv("AGY_PATH")
+    if env_val and env_val.strip():
+        return env_val.strip()
+    which = shutil.which("agy")
+    if which:
+        return which
+    user_bin = os.path.expanduser("~/.local/bin/agy")
+    return user_bin if os.path.exists(user_bin) else "/root/.local/bin/agy"
+
+
+AGY_PATH = _get_default_agy_path()
+DEFAULT_WORKSPACE = os.getenv(
+    "DEFAULT_WORKSPACE",
+    os.path.expanduser("~/my-project"),
+).strip()
 
 DEFAULT_MODEL = "gemini-3.6-flash-high"
 DEFAULT_EFFORT = "high"
 DEFAULT_MODE = "accept-edits"
 
-BRAIN_DIR = os.getenv("BRAIN_DIR", "/root/.gemini/antigravity-cli/brain").strip()
+BRAIN_DIR = os.getenv(
+    "BRAIN_DIR",
+    os.path.expanduser("~/.gemini/antigravity-cli/brain"),
+).strip()
 OAUTH_TOKEN_PATH = os.getenv(
     "OAUTH_TOKEN_PATH",
-    "/root/.gemini/antigravity-cli/antigravity-oauth-token",
+    os.path.expanduser("~/.gemini/antigravity-cli/antigravity-oauth-token"),
 ).strip()
 SESSION_FILE = os.getenv(
     "SESSION_FILE",

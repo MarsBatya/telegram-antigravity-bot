@@ -527,3 +527,134 @@ def test_run_smash_and_resume_stream():
         stream_runner.resume_stream("Keep going", 555)
         mock_run.assert_called_once()
         assert mock_run.call_args[0][0] == "Keep going"
+
+
+def test_rename_session_with_metadata_header(tmp_path):
+    brain_dir = str(tmp_path / "brain")
+    conv_id = "conv-meta-rename"
+    log_dir = tmp_path / "brain" / conv_id / ".system_generated" / "logs"
+    log_dir.mkdir(parents=True)
+    transcript_file = log_dir / "transcript.jsonl"
+
+    # Line 0 is a system message; Line 1 is the user request
+    with open(transcript_file, "w", encoding="utf-8") as f:
+        f.write(
+            json.dumps(
+                {"type": "SYSTEM_INFO", "content": "Session initialized"},
+            )
+            + "\n",
+        )
+        f.write(
+            json.dumps(
+                {
+                    "type": "USER_INPUT",
+                    "content": "<USER_REQUEST>Initial Goal</USER_REQUEST>",
+                },
+            )
+            + "\n",
+        )
+
+    assert (
+        stream_runner.rename_session(conv_id, "Renamed Goal", brain_dir=brain_dir)
+        is True
+    )
+
+    with open(transcript_file, "r", encoding="utf-8") as f:
+        lines = f.readlines()
+        assert len(lines) == 2
+        assert "Session initialized" in lines[0]
+        assert "Renamed Goal" in lines[1]
+
+
+def test_cancel_chat_process_kills_process_group():
+    mock_proc = MagicMock()
+    mock_proc.pid = 4321
+    mock_proc.poll.side_effect = [None, None, 0]
+
+    stream_runner.active_processes[333] = mock_proc
+
+    with (
+        patch("os.getpgid", return_value=4321) as mock_getpgid,
+        patch("os.killpg") as mock_killpg,
+    ):
+        assert stream_runner.cancel_chat_process(333) is True
+        mock_getpgid.assert_called_with(4321)
+        assert mock_killpg.call_count >= 1
+        mock_proc.terminate.assert_called_once()
+        mock_proc.kill.assert_called_once()
+        assert 333 not in stream_runner.active_processes
+
+
+def test_cleanup_all_active_processes():
+    proc1 = MagicMock()
+    proc1.pid = 1001
+    proc1.poll.return_value = None
+
+    proc2 = MagicMock()
+    proc2.pid = 1002
+    proc2.poll.return_value = 0  # already stopped
+
+    stream_runner.active_processes[1] = proc1
+    stream_runner.active_processes[2] = proc2
+
+    with patch("os.getpgid", return_value=1001), patch("os.killpg"):
+        stream_runner.cleanup_all_active_processes()
+        proc1.terminate.assert_called_once()
+        proc2.terminate.assert_not_called()
+        assert len(stream_runner.active_processes) == 0
+
+
+def test_run_antigravity_stream_registers_active_process(tmp_path):
+    agy_mock = str(tmp_path / "agy")
+    with open(agy_mock, "w") as f:
+        f.write("#!/bin/sh\nexit 0\n")
+    os.chmod(agy_mock, 0o755)  # noqa: S103
+
+    mock_process = MagicMock()
+    mock_process.pid = 5555
+
+    registered_during_run = False
+
+    def fake_readline():
+        nonlocal registered_during_run
+        if 7788 in stream_runner.active_processes:
+            registered_during_run = True
+        return ""
+
+    mock_process.stdout.readline.side_effect = fake_readline
+    mock_process.wait.return_value = 0
+
+    with patch.object(config, "AGY_PATH", agy_mock):
+        with patch("subprocess.Popen", return_value=mock_process):
+            stream_runner.run_antigravity_stream(
+                "Test",
+                7788,
+                workspace_dir=str(tmp_path),
+            )
+
+    assert registered_during_run is True
+    assert 7788 not in stream_runner.active_processes
+
+
+def test_atomic_session_persistence_concurrent(tmp_path):
+    import concurrent.futures
+
+    session_file = str(tmp_path / "concurrent_sessions.json")
+    stream_runner.active_conversations.clear()
+    stream_runner.active_workspaces.clear()
+    stream_runner.active_settings.clear()
+
+    def worker(idx: int) -> None:
+        stream_runner.active_conversations[idx] = f"conv-{idx}"
+        stream_runner.save_persistent_sessions(session_file)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        futures = [executor.submit(worker, i) for i in range(10)]
+        for f in concurrent.futures.as_completed(futures):
+            f.result()
+
+    stream_runner.active_conversations.clear()
+    stream_runner.load_persistent_sessions(session_file)
+    assert len(stream_runner.active_conversations) == 10
+    for i in range(10):
+        assert stream_runner.active_conversations[i] == f"conv-{i}"

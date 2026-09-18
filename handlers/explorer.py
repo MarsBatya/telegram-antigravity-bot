@@ -14,6 +14,7 @@ from callbacks import (
     NavigationCallback,
     WorkspaceCallback,
 )
+import config
 from keyboards import get_tree_keyboard, get_workspace_keyboard
 
 router = Router(name="explorer")
@@ -43,7 +44,7 @@ async def show_workspace_picker(message: Message, bot: Bot) -> None:
     chat_id = message.chat.id
     current_ws = agent_runner.get_chat_workspace(chat_id)
 
-    base_dir = "/root/my-project"
+    base_dir = config.DEFAULT_WORKSPACE
     available_dirs = [base_dir]
 
     if os.path.exists(base_dir):
@@ -110,7 +111,7 @@ async def handle_browse_dir_callback(
     callback: CallbackQuery,
     callback_data: BrowseDirCallback,
 ) -> None:
-    path_dir = path_mapper.decode(callback_data.token) or "/root/my-project"
+    path_dir = path_mapper.decode(callback_data.token) or config.DEFAULT_WORKSPACE
     await render_file_explorer_callback(callback, path_dir)
 
 
@@ -128,7 +129,7 @@ def _build_tree_data(
 ) -> tuple[str, str, list[str], list[tuple[str, float]]]:
     norm_path = os.path.abspath(path_dir)
     if not os.path.exists(norm_path):
-        norm_path = "/root/my-project"
+        norm_path = config.DEFAULT_WORKSPACE
 
     cur_ws = agent_runner.get_chat_workspace(chat_id)
     dirs: list[str] = []

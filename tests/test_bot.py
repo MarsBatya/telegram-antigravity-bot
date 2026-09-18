@@ -5,6 +5,7 @@ from aiogram import Bot
 from aiogram.types import CallbackQuery, Chat, Message, User
 
 import bot
+from bot_utils import _chunk_text_safely, balance_html_chunks
 from callbacks import (
     BrowseDirCallback,
     EffortCallback,
@@ -666,3 +667,45 @@ async def test_additional_callbacks() -> None:
     ) as mock_tree:
         await bot.handle_browse_dir_callback(call_dir, cb_dir)
         mock_tree.assert_called_once()
+
+
+def test_chunk_text_safely_oversized_line() -> None:
+    giant_line = "A" * 9000
+    chunks = _chunk_text_safely(giant_line, max_length=3800)
+    assert len(chunks) == 3
+    assert len(chunks[0]) == 3800
+    assert len(chunks[1]) == 3800
+    assert len(chunks[2]) == 1400
+    assert "".join(chunks) == giant_line
+
+
+def test_balance_html_chunks() -> None:
+    raw_chunks = [
+        "<pre><code>line 1",
+        "line 2</code></pre>",
+    ]
+    balanced = balance_html_chunks(raw_chunks)
+    assert len(balanced) == 2
+    assert balanced[0] == "<pre><code>line 1</code></pre>"
+    assert balanced[1] == "<pre><code>line 2</code></pre>"
+
+
+async def test_send_long_message_unbroken_giant_line() -> None:
+    mock_bot = AsyncMock(spec=Bot)
+    giant_line = "X" * 10000
+
+    await bot.send_long_message(mock_bot, 123, giant_line)
+    assert mock_bot.send_message.call_count == 3
+    for call in mock_bot.send_message.call_args_list:
+        chunk_sent = call[0][1]
+        assert len(chunk_sent) <= 3800
+
+
+async def test_on_shutdown() -> None:
+    with (
+        patch("bot.stream_runner.cleanup_all_active_processes") as mock_cleanup,
+        patch.object(bot.bot.session, "close", new=AsyncMock()) as mock_close,
+    ):
+        await bot.on_shutdown()
+        mock_cleanup.assert_called_once()
+        mock_close.assert_called_once()

@@ -1,6 +1,7 @@
 from stream_runner import (
     active_conversations,
     cancel_chat_process,
+    cleanup_all_active_processes,
     delete_session,
     fetch_available_models_live,
     fetch_bot_logs,
@@ -28,6 +29,7 @@ from stream_runner import (
 __all__ = [
     "active_conversations",
     "cancel_chat_process",
+    "cleanup_all_active_processes",
     "delete_session",
     "fetch_available_models_live",
     "fetch_bot_logs",

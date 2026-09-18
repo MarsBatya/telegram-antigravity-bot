@@ -3,6 +3,7 @@ from collections.abc import Callable
 import contextlib
 import html
 import os
+import re
 import tempfile
 import time
 import traceback
@@ -25,6 +26,7 @@ from keyboards import (
 )
 
 router = Router(name="agent")
+_active_background_tasks: set[asyncio.Task[Any]] = set()
 
 
 @router.message(Command(commands=["smash"]))
@@ -248,7 +250,7 @@ async def process_custom_agent_prompt(  # noqa: C901
             last_edit_time = now
 
             async def _edit() -> None:
-                with contextlib.suppress(Exception):
+                try:
                     await bot.edit_message_text(
                         text=text,
                         chat_id=chat_id,
@@ -256,6 +258,15 @@ async def process_custom_agent_prompt(  # noqa: C901
                         parse_mode="HTML",
                         reply_markup=cancel_markup,
                     )
+                except Exception:
+                    with contextlib.suppress(Exception):
+                        await bot.edit_message_text(
+                            text=re.sub(r"<[^>]+>", "", text),
+                            chat_id=chat_id,
+                            message_id=status_msg.message_id,
+                            parse_mode=None,
+                            reply_markup=cancel_markup,
+                        )
 
             asyncio.run_coroutine_threadsafe(_edit(), loop)
 
@@ -319,4 +330,6 @@ async def process_custom_agent_prompt(  # noqa: C901
                 reply_markup=get_main_reply_keyboard(),
             )
 
-    asyncio.create_task(_worker())
+    task = asyncio.create_task(_worker())
+    _active_background_tasks.add(task)
+    task.add_done_callback(_active_background_tasks.discard)
