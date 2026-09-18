@@ -1,23 +1,31 @@
 import contextlib
+import datetime
 import html
 import os
 
 from aiogram import Bot, F, Router
 from aiogram.filters import Command
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, FSInputFile, Message
 
 import agent_runner
-from bot_utils import path_mapper, reply_safe
+from bot_utils import format_file_size, path_mapper, reply_safe
 from callbacks import (
     BrowseDirCallback,
     FileInfoCallback,
+    FileUploadCallback,
     NavigationCallback,
     WorkspaceCallback,
 )
 import config
-from keyboards import get_tree_keyboard, get_workspace_keyboard
+from keyboards import (
+    get_file_details_keyboard,
+    get_tree_keyboard,
+    get_workspace_keyboard,
+)
 
 router = Router(name="explorer")
+
+TREE_PAGE_SIZE: int = 10
 
 
 @router.message(Command(commands=["workspace"]))
@@ -112,7 +120,7 @@ async def handle_browse_dir_callback(
     callback_data: BrowseDirCallback,
 ) -> None:
     path_dir = path_mapper.decode(callback_data.token) or config.DEFAULT_WORKSPACE
-    await render_file_explorer_callback(callback, path_dir)
+    await render_file_explorer_callback(callback, path_dir, page=callback_data.page)
 
 
 @router.callback_query(FileInfoCallback.filter())
@@ -120,7 +128,149 @@ async def handle_file_info_callback(
     callback: CallbackQuery,
     callback_data: FileInfoCallback,
 ) -> None:
-    await callback.answer(f"File: {callback_data.name}", show_alert=False)
+    if callback.message is None:
+        return
+    file_path = path_mapper.decode(callback_data.token)
+    if not file_path or not os.path.exists(file_path):
+        await callback.answer("File not found or moved!", show_alert=True)
+        return
+
+    fname = os.path.basename(file_path)
+    parent_dir = os.path.dirname(file_path)
+    dir_token = path_mapper.encode(parent_dir)
+
+    try:
+        size_bytes = os.path.getsize(file_path)
+        mtime = os.path.getmtime(file_path)
+        mtime_str = datetime.datetime.fromtimestamp(mtime).strftime(
+            "%Y-%m-%d %H:%M:%S",
+        )
+    except OSError:
+        size_bytes = 0
+        mtime_str = "Unknown"
+
+    size_formatted = format_file_size(size_bytes)
+    is_empty = size_bytes == 0
+    is_oversized = size_bytes > 50 * 1024 * 1024
+    can_upload = not is_empty and not is_oversized
+
+    text = (
+        f"📄 <b>File Information</b>\n\n"
+        f"📁 <b>Filename:</b> <code>{html.escape(fname)}</code>\n"
+        f"📂 <b>Directory:</b> <code>{html.escape(parent_dir)}</code>\n"
+        f"📏 <b>Size:</b> {size_formatted} (<code>{size_bytes:,} bytes</code>)\n"
+        f"🕒 <b>Modified:</b> {mtime_str}\n\n"
+    )
+    if is_empty:
+        text += (
+            "⚠️ <i>File is empty (0 bytes). "
+            "Telegram does not allow sending empty files.</i>"
+        )
+    elif is_oversized:
+        text += "⚠️ <i>File exceeds Telegram's 50MB upload limit.</i>"
+    else:
+        text += "<i>Tap below to upload this file directly into your Telegram chat:</i>"
+
+    markup = get_file_details_keyboard(
+        file_token=callback_data.token,
+        dir_token=dir_token,
+        page=callback_data.page,
+        can_upload=can_upload,
+    )
+    with contextlib.suppress(Exception):
+        await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
+
+
+@router.callback_query(FileUploadCallback.filter())
+async def handle_file_upload_callback(
+    callback: CallbackQuery,
+    callback_data: FileUploadCallback,
+    bot: Bot,
+) -> None:
+    if callback.message is None:
+        return
+    file_path = path_mapper.decode(callback_data.token)
+    if not file_path or not os.path.exists(file_path) or not os.path.isfile(file_path):
+        await callback.answer("File not found or cannot be read!", show_alert=True)
+        return
+
+    try:
+        size_bytes = os.path.getsize(file_path)
+    except OSError:
+        await callback.answer("Unable to read file size!", show_alert=True)
+        return
+
+    if size_bytes == 0:
+        await callback.answer(
+            "⚠️ File is empty (0 bytes). Telegram does not allow sending empty files.",
+            show_alert=True,
+        )
+        return
+
+    if size_bytes > 50 * 1024 * 1024:
+        await callback.answer(
+            "⚠️ File exceeds Telegram's 50MB upload limit!",
+            show_alert=True,
+        )
+        return
+
+    await callback.answer("📤 Uploading file to chat...", show_alert=False)
+    chat_id = callback.message.chat.id
+    fname = os.path.basename(file_path)
+    size_formatted = format_file_size(size_bytes)
+    ext = os.path.splitext(file_path)[1].lower()
+
+    try:
+        if ext in [".png", ".jpg", ".jpeg", ".webp"]:
+            try:
+                await bot.send_photo(
+                    chat_id=chat_id,
+                    photo=FSInputFile(file_path),
+                    caption=f"🖼️ <b>{html.escape(fname)}</b> ({size_formatted})",
+                    parse_mode="HTML",
+                )
+            except Exception:
+                await bot.send_document(
+                    chat_id=chat_id,
+                    document=FSInputFile(file_path),
+                    caption=f"📄 <b>{html.escape(fname)}</b> ({size_formatted})",
+                    parse_mode="HTML",
+                )
+        else:
+            await bot.send_document(
+                chat_id=chat_id,
+                document=FSInputFile(file_path),
+                caption=f"📄 <b>{html.escape(fname)}</b> ({size_formatted})",
+                parse_mode="HTML",
+            )
+    except Exception as exc:
+        print(f"[ERROR] Failed to send file {file_path}: {exc}")
+        await callback.answer(f"Failed to upload: {exc}", show_alert=True)
+        return
+
+    parent_dir = os.path.dirname(file_path)
+    dir_token = path_mapper.encode(parent_dir)
+    markup = get_file_details_keyboard(
+        file_token=callback_data.token,
+        dir_token=dir_token,
+        page=callback_data.page,
+        can_upload=True,
+        uploaded=True,
+    )
+    success_text = (
+        f"✅ <b>File Successfully Uploaded to Chat!</b>\n\n"
+        f"📁 <b>Filename:</b> <code>{html.escape(fname)}</code>\n"
+        f"📂 <b>Directory:</b> <code>{html.escape(parent_dir)}</code>\n"
+        f"📏 <b>Size:</b> {size_formatted} (<code>{size_bytes:,} bytes</code>)\n\n"
+        f"<i>File has been delivered above. "
+        f"You can upload again or return to files.</i>"
+    )
+    with contextlib.suppress(Exception):
+        await callback.message.edit_text(
+            success_text,
+            reply_markup=markup,
+            parse_mode="HTML",
+        )
 
 
 def _build_tree_data(
@@ -141,28 +291,88 @@ def _build_tree_data(
             if e.startswith("."):
                 continue
             full_e = os.path.join(norm_path, e)
-            if os.path.isdir(full_e):
-                dirs.append(e)
-            else:
-                sz_kb = round(os.path.getsize(full_e) / 1024, 1)
-                files.append((e, sz_kb))
+            try:
+                if os.path.isdir(full_e):
+                    dirs.append(e)
+                else:
+                    sz_kb = round(os.path.getsize(full_e) / 1024, 1)
+                    files.append((e, sz_kb))
+            except (OSError, PermissionError):
+                continue
     except Exception as e:
         print(f"[ERROR] Listing dir {norm_path}: {e}")
 
-    return norm_path, cur_ws, dirs[:10], files[:10]
+    return norm_path, cur_ws, dirs, files
+
+
+def _paginate_tree_entries(
+    dirs: list[str],
+    files: list[tuple[str, float]],
+    page: int = 1,
+    page_size: int = TREE_PAGE_SIZE,
+) -> tuple[list[str], list[tuple[str, float]], int, int, int]:
+    """Slices combined dirs and files for the requested page.
+
+    Returns (page_dirs, page_files, valid_page, total_pages, total_items).
+    """
+    total_items = len(dirs) + len(files)
+    total_pages = max(1, (total_items + page_size - 1) // page_size)
+    valid_page = max(1, min(page, total_pages))
+
+    start_idx = (valid_page - 1) * page_size
+    end_idx = start_idx + page_size
+    num_dirs = len(dirs)
+
+    dir_start = max(0, min(start_idx, num_dirs))
+    dir_end = max(0, min(end_idx, num_dirs))
+    page_dirs = dirs[dir_start:dir_end]
+
+    file_start = max(0, min(start_idx - num_dirs, len(files)))
+    file_end = max(0, min(end_idx - num_dirs, len(files)))
+    page_files = files[file_start:file_end]
+
+    return page_dirs, page_files, valid_page, total_pages, total_items
 
 
 async def render_file_explorer_message(
     message: Message,
     bot: Bot,
     path_dir: str,
+    page: int = 1,
 ) -> None:
-    norm_path, cur_ws, dirs, files = _build_tree_data(message.chat.id, path_dir)
-    markup = get_tree_keyboard(norm_path, cur_ws, dirs, files, path_mapper.encode)
+    norm_path, cur_ws, all_dirs, all_files = _build_tree_data(
+        message.chat.id,
+        path_dir,
+    )
+    page_dirs, page_files, page, total_pages, total_items = _paginate_tree_entries(
+        all_dirs,
+        all_files,
+        page=page,
+        page_size=TREE_PAGE_SIZE,
+    )
+    markup = get_tree_keyboard(
+        norm_path,
+        cur_ws,
+        page_dirs,
+        page_files,
+        path_mapper.encode,
+        page=page,
+        total_pages=total_pages,
+    )
+    if total_items == 0:
+        info_line = "📊 <i>(Directory is empty)</i>\n\n"
+    elif total_pages > 1:
+        info_line = (
+            f"📊 <b>Page {page}/{total_pages}</b> ({total_items} items total)\n\n"
+        )
+    else:
+        info_line = f"📊 <b>{total_items} items total</b>\n\n"
+
     text = (
         f"🌳 <b>Interactive File Explorer (VPS)</b>\n\n"
         f"📂 <b>Current Path:</b>\n<code>{html.escape(norm_path)}</code>\n\n"
-        f"Click a folder to browse or set as target workspace:"
+        f"{info_line}"
+        f"Click a folder to browse, or tap a file to view and upload to chat:"
     )
     await reply_safe(bot, message, text, reply_markup=markup)
 
@@ -170,18 +380,43 @@ async def render_file_explorer_message(
 async def render_file_explorer_callback(
     callback: CallbackQuery,
     path_dir: str,
+    page: int = 1,
 ) -> None:
     if callback.message is None:
         return
-    norm_path, cur_ws, dirs, files = _build_tree_data(
+    norm_path, cur_ws, all_dirs, all_files = _build_tree_data(
         callback.message.chat.id,
         path_dir,
     )
-    markup = get_tree_keyboard(norm_path, cur_ws, dirs, files, path_mapper.encode)
+    page_dirs, page_files, page, total_pages, total_items = _paginate_tree_entries(
+        all_dirs,
+        all_files,
+        page=page,
+        page_size=TREE_PAGE_SIZE,
+    )
+    markup = get_tree_keyboard(
+        norm_path,
+        cur_ws,
+        page_dirs,
+        page_files,
+        path_mapper.encode,
+        page=page,
+        total_pages=total_pages,
+    )
+    if total_items == 0:
+        info_line = "📊 <i>(Directory is empty)</i>\n\n"
+    elif total_pages > 1:
+        info_line = (
+            f"📊 <b>Page {page}/{total_pages}</b> ({total_items} items total)\n\n"
+        )
+    else:
+        info_line = f"📊 <b>{total_items} items total</b>\n\n"
+
     text = (
         f"🌳 <b>Interactive File Explorer (VPS)</b>\n\n"
         f"📂 <b>Current Path:</b>\n<code>{html.escape(norm_path)}</code>\n\n"
-        f"Click a folder to browse or set as target workspace:"
+        f"{info_line}"
+        f"Click a folder to browse, or tap a file to view and upload to chat:"
     )
     with contextlib.suppress(Exception):
         await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")

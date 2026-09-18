@@ -63,6 +63,17 @@ def make_progress_bar(percent: float, length: int = 10) -> str:
     return f"[{bar}] {percent:.1f}%"
 
 
+def format_file_size(size_bytes: int | float) -> str:
+    """Formats bytes into human-readable size string (B, KB, MB, GB)."""
+    if size_bytes < 1024:
+        return f"{int(size_bytes)} B"
+    if size_bytes < 1024 * 1024:
+        return f"{round(size_bytes / 1024, 1)} KB"
+    if size_bytes < 1024 * 1024 * 1024:
+        return f"{round(size_bytes / (1024 * 1024), 1)} MB"
+    return f"{round(size_bytes / (1024 * 1024 * 1024), 1)} GB"
+
+
 def is_authorized(user_id: int) -> bool:
     if not config.ALLOWED_USER_IDS:
         return False

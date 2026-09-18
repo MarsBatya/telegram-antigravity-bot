@@ -5,16 +5,20 @@ from aiogram import Bot
 from aiogram.types import CallbackQuery, Chat, Message, User
 
 import bot
-from bot_utils import _chunk_text_safely, balance_html_chunks
+from bot_utils import _chunk_text_safely, balance_html_chunks, format_file_size
 from callbacks import (
     BrowseDirCallback,
     EffortCallback,
+    FileInfoCallback,
+    FileUploadCallback,
     ModeCallback,
     ModelCallback,
     SessionCallback,
     WorkspaceCallback,
 )
 import config
+from handlers.explorer import _paginate_tree_entries
+from keyboards import get_file_details_keyboard, get_tree_keyboard
 from middlewares import AuthMiddleware
 
 
@@ -778,3 +782,288 @@ async def test_command_status_displays_proxy() -> None:
         status_text = mock_reply.call_args[0][2]
         assert "Telegram Proxy:" in status_text
         assert "http://user:***@127.0.0.1:8080" in status_text
+
+
+def test_format_file_size() -> None:
+    assert format_file_size(500) == "500 B"
+    assert format_file_size(1024) == "1.0 KB"
+    assert format_file_size(1536) == "1.5 KB"
+    assert format_file_size(1024 * 1024) == "1.0 MB"
+    assert format_file_size(2.5 * 1024 * 1024) == "2.5 MB"
+    assert format_file_size(1024 * 1024 * 1024) == "1.0 GB"
+
+
+def test_paginate_tree_entries() -> None:
+    dirs = [f"dir_{i}" for i in range(12)]
+    files = [(f"file_{i}.txt", 1.0) for i in range(15)]
+    # Total = 27 items, page size = 10 -> 3 pages
+    p1_dirs, p1_files, p1, total_pages, total_items = _paginate_tree_entries(
+        dirs,
+        files,
+        page=1,
+        page_size=10,
+    )
+    assert total_pages == 3
+    assert total_items == 27
+    assert p1 == 1
+    assert len(p1_dirs) == 10
+    assert len(p1_files) == 0
+
+    p2_dirs, p2_files, p2, _, _ = _paginate_tree_entries(
+        dirs,
+        files,
+        page=2,
+        page_size=10,
+    )
+    assert p2 == 2
+    assert len(p2_dirs) == 2
+    assert len(p2_files) == 8
+
+    p3_dirs, p3_files, p3, _, _ = _paginate_tree_entries(
+        dirs,
+        files,
+        page=3,
+        page_size=10,
+    )
+    assert p3 == 3
+    assert len(p3_dirs) == 0
+    assert len(p3_files) == 7
+
+    # Clamping out-of-range page numbers
+    _, _, p_neg, _, _ = _paginate_tree_entries(dirs, files, page=-1, page_size=10)
+    assert p_neg == 1
+
+    _, _, p_large, _, _ = _paginate_tree_entries(dirs, files, page=999, page_size=10)
+    assert p_large == 3
+
+
+def test_get_tree_keyboard_pagination() -> None:
+    norm_path = "/home/test/project"
+    cur_ws = "/home/test/project"
+    dirs = ["subdir1"]
+    files = [("file1.txt", 2.5)]
+
+    # Single page -> no pagination row
+    kb_single = get_tree_keyboard(
+        norm_path,
+        cur_ws,
+        dirs,
+        files,
+        bot.path_mapper.encode,
+        page=1,
+        total_pages=1,
+    )
+    all_buttons = [btn for row in kb_single.inline_keyboard for btn in row]
+    assert not any("Next ➡️" in btn.text for btn in all_buttons)
+    assert not any("⬅️ Prev" in btn.text for btn in all_buttons)
+
+    # Multi page (Page 1 of 3) -> has Next and Page info, no Prev
+    kb_p1 = get_tree_keyboard(
+        norm_path,
+        cur_ws,
+        dirs,
+        files,
+        bot.path_mapper.encode,
+        page=1,
+        total_pages=3,
+    )
+    buttons_p1 = [btn for row in kb_p1.inline_keyboard for btn in row]
+    assert any("Next ➡️" in btn.text for btn in buttons_p1)
+    assert not any("⬅️ Prev" in btn.text for btn in buttons_p1)
+    assert any("📄 1/3" in btn.text for btn in buttons_p1)
+
+    # Multi page (Page 2 of 3) -> has Prev, Next, and Page info
+    kb_p2 = get_tree_keyboard(
+        norm_path,
+        cur_ws,
+        dirs,
+        files,
+        bot.path_mapper.encode,
+        page=2,
+        total_pages=3,
+    )
+    buttons_p2 = [btn for row in kb_p2.inline_keyboard for btn in row]
+    assert any("Next ➡️" in btn.text for btn in buttons_p2)
+    assert any("⬅️ Prev" in btn.text for btn in buttons_p2)
+    assert any("📄 2/3" in btn.text for btn in buttons_p2)
+
+    # Multi page (Page 3 of 3) -> has Prev and Page info, no Next
+    kb_p3 = get_tree_keyboard(
+        norm_path,
+        cur_ws,
+        dirs,
+        files,
+        bot.path_mapper.encode,
+        page=3,
+        total_pages=3,
+    )
+    buttons_p3 = [btn for row in kb_p3.inline_keyboard for btn in row]
+    assert not any("Next ➡️" in btn.text for btn in buttons_p3)
+    assert any("⬅️ Prev" in btn.text for btn in buttons_p3)
+    assert any("📄 3/3" in btn.text for btn in buttons_p3)
+
+
+def test_get_file_details_keyboard() -> None:
+    kb = get_file_details_keyboard(
+        file_token="p1",  # noqa: S106
+        dir_token="p2",  # noqa: S106
+        page=2,
+        can_upload=True,
+    )
+    buttons = [btn for row in kb.inline_keyboard for btn in row]
+    assert any("Upload to Chat" in btn.text for btn in buttons)
+    assert any("Back to Files" in btn.text for btn in buttons)
+
+    kb_uploaded = get_file_details_keyboard(
+        file_token="p1",  # noqa: S106
+        dir_token="p2",  # noqa: S106
+        page=2,
+        can_upload=True,
+        uploaded=True,
+    )
+    buttons_up = [btn for row in kb_uploaded.inline_keyboard for btn in row]
+    assert any("Upload Again" in btn.text for btn in buttons_up)
+
+
+async def test_handle_file_info_callback(tmp_path) -> None:
+    # 1. Valid file
+    test_file = tmp_path / "hello.py"
+    test_file.write_text("print('hello world')\n")
+    token = bot.path_mapper.encode(str(test_file))
+
+    call = make_mock_callback(user_id=12345)
+    cb_data = FileInfoCallback(token=token, page=2)
+    await bot.handle_file_info_callback(call, cb_data)
+    call.message.edit_text.assert_called_once()
+    text = call.message.edit_text.call_args[0][0]
+    assert "File Information" in text
+    assert "hello.py" in text
+    assert "Size:" in text
+    markup = call.message.edit_text.call_args[1]["reply_markup"]
+    buttons = [btn for row in markup.inline_keyboard for btn in row]
+    assert any("Upload to Chat" in btn.text for btn in buttons)
+    assert any("Back to Files" in btn.text for btn in buttons)
+
+    # 2. File not found
+    call_missing = make_mock_callback(user_id=12345)
+    missing_token = bot.path_mapper.encode(str(tmp_path / "nonexistent.txt"))
+    await bot.handle_file_info_callback(
+        call_missing,
+        FileInfoCallback(token=missing_token, page=1),
+    )
+    call_missing.answer.assert_called_once_with(
+        "File not found or moved!",
+        show_alert=True,
+    )
+
+    # 3. Empty file (0 bytes)
+    empty_file = tmp_path / "empty.txt"
+    empty_file.write_text("")
+    empty_token = bot.path_mapper.encode(str(empty_file))
+    call_empty = make_mock_callback(user_id=12345)
+    await bot.handle_file_info_callback(
+        call_empty,
+        FileInfoCallback(token=empty_token, page=1),
+    )
+    call_empty.message.edit_text.assert_called_once()
+    assert "File is empty" in call_empty.message.edit_text.call_args[0][0]
+    empty_markup = call_empty.message.edit_text.call_args[1]["reply_markup"]
+    empty_buttons = [btn for row in empty_markup.inline_keyboard for btn in row]
+    assert not any("Upload to Chat" in btn.text for btn in empty_buttons)
+
+    # 4. Oversized file (> 50MB)
+    call_oversized = make_mock_callback(user_id=12345)
+    with patch("os.path.getsize", return_value=51 * 1024 * 1024):
+        await bot.handle_file_info_callback(
+            call_oversized,
+            FileInfoCallback(token=token, page=1),
+        )
+        oversized_text = call_oversized.message.edit_text.call_args[0][0]
+        assert "exceeds Telegram's 50MB" in oversized_text
+
+
+async def test_handle_file_upload_callback(tmp_path) -> None:
+    mock_bot = AsyncMock(spec=Bot)
+    # 1. Successful document upload
+    sample_file = tmp_path / "script.py"
+    sample_file.write_text("a = 10\n")
+    token = bot.path_mapper.encode(str(sample_file))
+
+    call = make_mock_callback(user_id=12345)
+    cb_data = FileUploadCallback(token=token, page=1)
+    await bot.handle_file_upload_callback(call, cb_data, mock_bot)
+
+    mock_bot.send_document.assert_called_once()
+    assert mock_bot.send_document.call_args.kwargs["chat_id"] == call.message.chat.id
+    assert "script.py" in mock_bot.send_document.call_args.kwargs["caption"]
+    call.message.edit_text.assert_called_once()
+    assert "Successfully Uploaded" in call.message.edit_text.call_args[0][0]
+
+    # 2. Successful photo upload for images
+    image_file = tmp_path / "image.png"
+    image_file.write_bytes(b"\x89PNG\r\n\x1a\nfakeimage")
+    img_token = bot.path_mapper.encode(str(image_file))
+    call_img = make_mock_callback(user_id=12345)
+    await bot.handle_file_upload_callback(
+        call_img,
+        FileUploadCallback(token=img_token, page=1),
+        mock_bot,
+    )
+    mock_bot.send_photo.assert_called_once()
+    assert "image.png" in mock_bot.send_photo.call_args.kwargs["caption"]
+
+    # 3. Photo upload fallback to document if send_photo raises
+    mock_bot.send_photo.side_effect = Exception("Invalid photo dimensions")
+    call_img_fallback = make_mock_callback(user_id=12345)
+    mock_bot.send_document.reset_mock()
+    await bot.handle_file_upload_callback(
+        call_img_fallback,
+        FileUploadCallback(token=img_token, page=1),
+        mock_bot,
+    )
+    mock_bot.send_document.assert_called_once()
+
+    # 4. Missing file
+    missing_token = bot.path_mapper.encode(str(tmp_path / "gone.txt"))
+    call_missing = make_mock_callback(user_id=12345)
+    await bot.handle_file_upload_callback(
+        call_missing,
+        FileUploadCallback(token=missing_token, page=1),
+        mock_bot,
+    )
+    call_missing.answer.assert_called_once_with(
+        "File not found or cannot be read!",
+        show_alert=True,
+    )
+
+    # 5. Empty file (0 bytes)
+    empty_file = tmp_path / "zero.txt"
+    empty_file.write_text("")
+    zero_token = bot.path_mapper.encode(str(empty_file))
+    call_zero = make_mock_callback(user_id=12345)
+    await bot.handle_file_upload_callback(
+        call_zero,
+        FileUploadCallback(token=zero_token, page=1),
+        mock_bot,
+    )
+    assert "File is empty (0 bytes)" in call_zero.answer.call_args[0][0]
+
+    # 6. File > 50MB
+    call_huge = make_mock_callback(user_id=12345)
+    with patch("os.path.getsize", return_value=60 * 1024 * 1024):
+        await bot.handle_file_upload_callback(
+            call_huge,
+            FileUploadCallback(token=token, page=1),
+            mock_bot,
+        )
+        assert "50MB" in call_huge.answer.call_args[0][0]
+
+    # 7. Upload failure exception handling
+    mock_bot.send_document.side_effect = Exception("Telegram API timeout")
+    call_err = make_mock_callback(user_id=12345)
+    await bot.handle_file_upload_callback(
+        call_err,
+        FileUploadCallback(token=token, page=1),
+        mock_bot,
+    )
+    assert "Failed to upload" in call_err.answer.call_args_list[-1][0][0]

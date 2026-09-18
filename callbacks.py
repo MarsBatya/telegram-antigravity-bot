@@ -19,10 +19,17 @@ class WorkspaceCallback(CallbackData, prefix="ws"):
 
 class BrowseDirCallback(CallbackData, prefix="dir"):
     token: str
+    page: int = 1
 
 
 class FileInfoCallback(CallbackData, prefix="file"):
-    name: str
+    token: str
+    page: int = 1
+
+
+class FileUploadCallback(CallbackData, prefix="fup"):
+    token: str
+    page: int = 1
 
 
 class SessionCallback(CallbackData, prefix="sess"):

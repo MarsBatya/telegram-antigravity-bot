@@ -13,6 +13,7 @@ from callbacks import (
     BrowseDirCallback,
     EffortCallback,
     FileInfoCallback,
+    FileUploadCallback,
     ModeCallback,
     ModelCallback,
     NavigationCallback,
@@ -132,6 +133,8 @@ def get_tree_keyboard(
     dirs: list[str],
     files: list[tuple[str, float]],
     path_encoder: Any,
+    page: int = 1,
+    total_pages: int = 1,
 ) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     parent = os.path.dirname(norm_path)
@@ -140,7 +143,7 @@ def get_tree_keyboard(
         builder.row(
             InlineKeyboardButton(
                 text="⬆️ .. (Parent Directory)",
-                callback_data=BrowseDirCallback(token=up_token).pack(),
+                callback_data=BrowseDirCallback(token=up_token, page=1).pack(),
             ),
         )
 
@@ -159,18 +162,79 @@ def get_tree_keyboard(
         builder.row(
             InlineKeyboardButton(
                 text=f"📁 {d}/",
-                callback_data=BrowseDirCallback(token=token).pack(),
+                callback_data=BrowseDirCallback(token=token, page=1).pack(),
             ),
         )
 
     for fname, sz in files:
+        full_f = os.path.join(norm_path, fname)
+        token = path_encoder(full_f)
         builder.row(
             InlineKeyboardButton(
                 text=f"📄 {fname} ({sz} KB)",
-                callback_data=FileInfoCallback(name=fname[:20]).pack(),
+                callback_data=FileInfoCallback(token=token, page=page).pack(),
             ),
         )
 
+    if total_pages > 1:
+        curr_token = path_encoder(norm_path)
+        nav_row: list[InlineKeyboardButton] = []
+        if page > 1:
+            nav_row.append(
+                InlineKeyboardButton(
+                    text="⬅️ Prev",
+                    callback_data=BrowseDirCallback(
+                        token=curr_token,
+                        page=page - 1,
+                    ).pack(),
+                ),
+            )
+        nav_row.append(
+            InlineKeyboardButton(
+                text=f"📄 {page}/{total_pages}",
+                callback_data=BrowseDirCallback(
+                    token=curr_token,
+                    page=page,
+                ).pack(),
+            ),
+        )
+        if page < total_pages:
+            nav_row.append(
+                InlineKeyboardButton(
+                    text="Next ➡️",
+                    callback_data=BrowseDirCallback(
+                        token=curr_token,
+                        page=page + 1,
+                    ).pack(),
+                ),
+            )
+        builder.row(*nav_row)
+
+    return builder.as_markup()
+
+
+def get_file_details_keyboard(
+    file_token: str,
+    dir_token: str,
+    page: int = 1,
+    can_upload: bool = True,
+    uploaded: bool = False,
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    if can_upload:
+        btn_text = "📥 Upload Again" if uploaded else "📥 Upload to Chat"
+        builder.row(
+            InlineKeyboardButton(
+                text=btn_text,
+                callback_data=FileUploadCallback(token=file_token, page=page).pack(),
+            ),
+        )
+    builder.row(
+        InlineKeyboardButton(
+            text="🔙 Back to Files",
+            callback_data=BrowseDirCallback(token=dir_token, page=page).pack(),
+        ),
+    )
     return builder.as_markup()
 
 
