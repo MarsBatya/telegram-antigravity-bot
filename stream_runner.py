@@ -988,15 +988,24 @@ def run_antigravity_stream(  # noqa: C901
         effort = get_chat_setting(chat_id, "effort", config.DEFAULT_EFFORT)
         mode = get_chat_setting(chat_id, "mode", config.DEFAULT_MODE)
 
-        persona_directive = getattr(config, "SYSTEM_PERSONA_PROMPT", "")
-        augmented_prompt = (
-            f"{persona_directive}\n\n"
+        conv_target = active_conversations.get(chat_id)
+        is_new_conversation = not conv_target
+
+        directives: list[str] = []
+        if is_new_conversation:
+            persona_directive = getattr(config, "SYSTEM_PERSONA_PROMPT", "").strip()
+            if persona_directive:
+                directives.append(persona_directive)
+
+        directives.append(
             f"[SYSTEM DIRECTIVE - TARGET WORKSPACE: {cwd}]\n"
             f"Note: User active target workspace directory is strictly set to '{cwd}'. "
             f"All relative paths, file scans, searches, reads, edits, and commands "
-            f"MUST take place inside '{cwd}'.\n\n"
-            f"{prompt}"
+            f"MUST take place inside '{cwd}'.",
         )
+
+        prompt_prefix = "\n\n".join(directives)
+        augmented_prompt = f"{prompt_prefix}\n\n{prompt}"
 
         cmd = [
             config.AGY_PATH,
@@ -1015,7 +1024,6 @@ def run_antigravity_stream(  # noqa: C901
             "--dangerously-skip-permissions",
         ]
 
-        conv_target = active_conversations.get(chat_id)
         if isinstance(conv_target, str) and conv_target:
             cmd.extend(["--conversation", conv_target])
         elif conv_target is True:

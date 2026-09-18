@@ -949,3 +949,92 @@ def test_run_antigravity_stream_multi_step_flow(tmp_path):
                 assert len(usage["steps"]) == 1
                 assert "git status" in usage["steps"][0]
                 assert len(captured_progress) > 0
+
+
+def test_persona_prompt_injected_only_on_first_turn(tmp_path):
+    agy_mock = str(tmp_path / "agy")
+    with open(agy_mock, "w") as f:
+        f.write("#!/bin/sh\nexit 0\n")
+    os.chmod(agy_mock, 0o755)  # noqa: S103
+
+    chat_id = 889911
+    stream_runner.active_conversations.pop(chat_id, None)
+
+    mock_process = MagicMock()
+    mock_process.stdout.readline.side_effect = [
+        json.dumps({"event": "init", "conversation_id": "conv-test-123"}) + "\n",
+        json.dumps({"event": "result", "result": {"response": "Done"}}) + "\n",
+        "",
+    ]
+    mock_process.wait.return_value = 0
+
+    with patch.object(config, "AGY_PATH", agy_mock):
+        with patch("subprocess.Popen", return_value=mock_process) as mock_popen:
+            with patch.object(stream_runner, "save_persistent_sessions"):
+                # Turn 1: New conversation
+                stream_runner.run_antigravity_stream(
+                    "First prompt",
+                    chat_id,
+                    workspace_dir=str(tmp_path),
+                )
+                args, kwargs = mock_popen.call_args
+                cmd = args[0]
+                p_idx = cmd.index("-p")
+                turn1_prompt = cmd[p_idx + 1]
+
+                assert "STYLE GUIDELINES" in turn1_prompt
+                assert "First prompt" in turn1_prompt
+                assert stream_runner.active_conversations[chat_id] == "conv-test-123"
+
+                # Turn 2: Follow-up in existing conversation
+                mock_process.stdout.readline.side_effect = [
+                    json.dumps(
+                        {"event": "result", "result": {"response": "Follow-up done"}},
+                    )
+                    + "\n",
+                    "",
+                ]
+                stream_runner.run_antigravity_stream(
+                    "Second prompt",
+                    chat_id,
+                    workspace_dir=str(tmp_path),
+                )
+                args2, kwargs2 = mock_popen.call_args
+                cmd2 = args2[0]
+                p_idx2 = cmd2.index("-p")
+                turn2_prompt = cmd2[p_idx2 + 1]
+
+                assert "STYLE GUIDELINES" not in turn2_prompt
+                assert "TARGET WORKSPACE" in turn2_prompt
+                assert "Second prompt" in turn2_prompt
+                assert "--conversation" in cmd2
+                assert "conv-test-123" in cmd2
+
+                # Reset session -> Turn 3 should be treated as a new conversation again
+                stream_runner.reset_session(chat_id)
+                assert stream_runner.active_conversations.get(chat_id) is None
+
+                mock_process.stdout.readline.side_effect = [
+                    json.dumps({"event": "init", "conversation_id": "conv-test-456"})
+                    + "\n",
+                    json.dumps(
+                        {
+                            "event": "result",
+                            "result": {"response": "Fresh session done"},
+                        },
+                    )
+                    + "\n",
+                    "",
+                ]
+                stream_runner.run_antigravity_stream(
+                    "Third prompt in new session",
+                    chat_id,
+                    workspace_dir=str(tmp_path),
+                )
+                args3, kwargs3 = mock_popen.call_args
+                cmd3 = args3[0]
+                p_idx3 = cmd3.index("-p")
+                turn3_prompt = cmd3[p_idx3 + 1]
+
+                assert "STYLE GUIDELINES" in turn3_prompt
+                assert "Third prompt in new session" in turn3_prompt
