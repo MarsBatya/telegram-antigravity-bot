@@ -100,3 +100,41 @@ def format_error_card(error_msg: str, suggestion: str | None = None) -> str:
     clean_err = html.escape(error_msg)
     sug_text = f"\n\n💡 {suggestion}" if suggestion else ""
     return f"oops, something went wrong 😅\n<code>{clean_err}</code>{sug_text}"
+
+
+def format_execution_steps(steps: list[str], max_display: int = 10) -> str:
+    """Formats completed agent execution steps into a collapsible Telegram blockquote.
+    Ensures the block stays strictly bounded to stay under Telegram limits.
+    """
+    if not steps:
+        return ""
+
+    total = len(steps)
+    if total > max_display:
+        earlier = total - (max_display - 2)
+        displayed = (
+            steps[:2]
+            + [f"<i>... {earlier} earlier steps</i>"]
+            + steps[-(max_display - 2) :]
+        )
+    else:
+        displayed = steps
+
+    rendered_lines: list[str] = []
+    for s in displayed:
+        s_clean = s.strip()
+        if not s_clean:
+            continue
+        if s_clean.startswith("<i>") or s_clean.startswith("✓"):
+            rendered_lines.append(s_clean)
+        else:
+            rendered_lines.append(f"✓ {s_clean}")
+
+    steps_text = "\n".join(rendered_lines)
+    if len(steps_text) > 1200:
+        steps_text = steps_text[:1150] + "...\n<i>(truncated)</i>"
+
+    return (
+        f"<blockquote expandable><b>⚡ Execution Steps ({total}):</b>\n"
+        f"{steps_text}</blockquote>\n\n"
+    )

@@ -633,33 +633,338 @@ def get_full_session_history_formatted(
         return []
 
 
+def format_tool_step_description(  # noqa: C901
+    tool_name: str,
+    params: dict[str, Any],
+    done: bool = False,
+    duration_seconds: float | None = None,
+) -> str:
+    """Formats an individual tool execution into a readable HTML step snippet."""
+    dur_str = (
+        f" <i>({duration_seconds:.2f}s)</i>"
+        if (done and duration_seconds is not None)
+        else ""
+    )
+
+    if tool_name == "run_command":
+        cmd = str(params.get("CommandLine") or "").strip()
+        cmd_disp = (cmd[:42] + "...") if len(cmd) > 45 else cmd
+        if done:
+            return (
+                f"Ran <code>{html.escape(cmd_disp)}</code>{dur_str}"
+                if cmd_disp
+                else f"Ran command{dur_str}"
+            )
+        return (
+            f"Running command: <code>{html.escape(cmd_disp)}</code>"
+            if cmd_disp
+            else "Running command..."
+        )
+
+    if tool_name == "view_file":
+        target = str(
+            params.get("AbsolutePath")
+            or params.get("TargetFile")
+            or params.get("SearchPath")
+            or "",
+        )
+        fname = os.path.basename(target) if target else ""
+        if done:
+            return (
+                f"Read <code>{html.escape(fname)}</code>{dur_str}"
+                if fname
+                else f"Read file{dur_str}"
+            )
+        return (
+            f"Reading <code>{html.escape(fname)}</code>" if fname else "Reading file..."
+        )
+
+    if tool_name in ["replace_file_content", "multi_replace_file_content"]:
+        target = str(params.get("TargetFile") or "")
+        fname = os.path.basename(target) if target else ""
+        if done:
+            return (
+                f"Edited <code>{html.escape(fname)}</code>{dur_str}"
+                if fname
+                else f"Edited file{dur_str}"
+            )
+        return (
+            f"Editing <code>{html.escape(fname)}</code>" if fname else "Editing file..."
+        )
+
+    if tool_name == "write_to_file":
+        target = str(params.get("TargetFile") or "")
+        fname = os.path.basename(target) if target else ""
+        if done:
+            return (
+                f"Wrote <code>{html.escape(fname)}</code>{dur_str}"
+                if fname
+                else f"Wrote file{dur_str}"
+            )
+        return (
+            f"Writing <code>{html.escape(fname)}</code>" if fname else "Writing file..."
+        )
+
+    if tool_name == "list_dir":
+        path = str(params.get("DirectoryPath") or "")
+        dname = os.path.basename(path.rstrip("/\\")) if path else ""
+        disp = f"{dname}/" if dname else ""
+        if done:
+            return (
+                f"Listed directory <code>{html.escape(disp)}</code>{dur_str}"
+                if disp
+                else f"Listed directory{dur_str}"
+            )
+        return (
+            f"Listing directory <code>{html.escape(disp)}</code>"
+            if disp
+            else "Listing directory..."
+        )
+
+    if tool_name in ["grep_search", "find_by_name", "find_files"]:
+        query = str(params.get("Query") or params.get("Pattern") or "")
+        q_disp = (query[:32] + "...") if len(query) > 35 else query
+        if done:
+            return (
+                f"Searched <code>{html.escape(q_disp)}</code>{dur_str}"
+                if q_disp
+                else f"Searched codebase{dur_str}"
+            )
+        return (
+            f"Searching for <code>{html.escape(q_disp)}</code>"
+            if q_disp
+            else "Searching codebase..."
+        )
+
+    if tool_name in ["read_url_content", "read_browser_page"]:
+        url = str(params.get("Url") or "")
+        u_disp = (url[:35] + "...") if len(url) > 38 else url
+        if done:
+            return (
+                f"Read web page <code>{html.escape(u_disp)}</code>{dur_str}"
+                if u_disp
+                else f"Read web page{dur_str}"
+            )
+        return (
+            f"Reading web page <code>{html.escape(u_disp)}</code>"
+            if u_disp
+            else "Reading web page..."
+        )
+
+    if tool_name == "search_web":
+        q = str(params.get("query") or "")
+        q_disp = (q[:32] + "...") if len(q) > 35 else q
+        if done:
+            return (
+                f"Searched web: <code>{html.escape(q_disp)}</code>{dur_str}"
+                if q_disp
+                else f"Searched web{dur_str}"
+            )
+        return (
+            f"Searching web: <code>{html.escape(q_disp)}</code>"
+            if q_disp
+            else "Searching web..."
+        )
+
+    if tool_name == "call_mcp_tool":
+        tname = str(params.get("ToolName") or params.get("name") or "")
+        if done:
+            return (
+                f"Called MCP tool <code>{html.escape(tname)}</code>{dur_str}"
+                if tname
+                else f"Called MCP tool{dur_str}"
+            )
+        return (
+            f"Calling MCP tool <code>{html.escape(tname)}</code>"
+            if tname
+            else "Calling MCP tool..."
+        )
+
+    if tool_name == "invoke_subagent":
+        role = str(params.get("Role") or params.get("TypeName") or "")
+        if done:
+            return (
+                f"Subagent completed: <code>{html.escape(role)}</code>{dur_str}"
+                if role
+                else f"Subagent completed{dur_str}"
+            )
+        return (
+            f"Invoking subagent: <code>{html.escape(role)}</code>"
+            if role
+            else "Invoking subagent..."
+        )
+
+    if tool_name == "generate_image":
+        iname = str(params.get("ImageName") or "image")
+        if done:
+            return f"Generated image <code>{html.escape(iname)}</code>{dur_str}"
+        return f"Generating image <code>{html.escape(iname)}</code>"
+
+    raw_action = str(params.get("toolAction") or params.get("toolSummary") or "")
+    if raw_action:
+        disp_action = raw_action[:57] + "..." if len(raw_action) > 60 else raw_action
+        return f"{html.escape(disp_action)}{dur_str}"
+
+    clean_name = html.escape(tool_name.replace("_", " "))
+    if len(clean_name) > 40:
+        clean_name = clean_name[:37] + "..."
+    if done:
+        return f"{clean_name} finished{dur_str}"
+    return f"Running {clean_name}..."
+
+
+def format_progress_card(
+    elapsed_seconds: int,
+    completed_steps: list[str],
+    active_activity: str,
+    spinner_frame: str = "⠋",
+) -> str:
+    """Formats the real-time Telegram status card showing elapsed time
+    and progress steps. Strictly bounds output length to stay under Telegram limits.
+    """
+    if not completed_steps:
+        act_lower = active_activity.lower().strip()
+        if act_lower.startswith("thinking"):
+            return f"🧠 <b>Thinking...</b> <i>({elapsed_seconds}s)</i>"
+        if act_lower.startswith("drafting"):
+            return f"✍️ <b>Drafting response...</b> <i>({elapsed_seconds}s)</i>"
+        disp_act = (
+            active_activity[:80] + "..."
+            if len(active_activity) > 80
+            else active_activity
+        )
+        return (
+            f"⚡ <b>Working...</b> <i>({elapsed_seconds}s)</i>\n\n"
+            f"{spinner_frame} <i>{disp_act}</i>"
+        )
+
+    header = f"⚡ <b>Working...</b> <i>({elapsed_seconds}s)</i>"
+    if len(completed_steps) > 5:
+        earlier_count = len(completed_steps) - 4
+        rendered_steps = [f"<i>... {earlier_count} earlier steps</i>"] + [
+            f"✓ {s}" for s in completed_steps[-4:]
+        ]
+    else:
+        rendered_steps = [f"✓ {s}" for s in completed_steps]
+
+    steps_block = "\n".join(rendered_steps)
+
+    act_lower = active_activity.lower().strip()
+    if act_lower.startswith("drafting"):
+        active_line = "✍️ <i>Drafting response...</i>"
+    elif act_lower.startswith("thinking"):
+        active_line = f"{spinner_frame} <i>Thinking next step...</i>"
+    elif act_lower == "done":
+        active_line = ""
+    else:
+        disp_act = (
+            active_activity[:80] + "..."
+            if len(active_activity) > 80
+            else active_activity
+        )
+        active_line = f"{spinner_frame} <i>{disp_act}</i>"
+
+    card = (
+        f"{header}\n\n{steps_block}\n{active_line}"
+        if active_line
+        else f"{header}\n\n{steps_block}"
+    )
+    if len(card) > 3500:
+        card = card[:3400] + "\n<i>... (truncated)</i>"
+    return card
+
+
 def _determine_stream_activity(
     tool_name: str,
     args: dict[str, Any],
 ) -> str:
-    target_file = (
-        args.get("TargetFile") or args.get("AbsolutePath") or args.get("SearchPath")
-    )
-    fname = os.path.basename(target_file) if target_file else ""
+    """Backward compatibility helper for plain text activity string."""
+    desc = format_tool_step_description(tool_name, args, done=False)
+    return re.sub(r"<[^>]+>", "", desc)
 
-    if tool_name == "view_file":
-        return f"reading {fname}" if fname else "reading file..."
-    if tool_name in [
-        "replace_file_content",
-        "multi_replace_file_content",
-        "write_to_file",
-    ]:
-        return f"editing {fname}" if fname else "writing changes..."
-    if tool_name in ["grep_search", "find_files"]:
-        query = args.get("Query", "")
-        return f"searching {query}" if query else "searching..."
-    if tool_name == "run_command":
-        return "running command..."
 
-    raw_action = args.get("toolAction") or args.get("toolSummary")
-    if raw_action:
-        return raw_action.lower()
-    return "drafting response..."
+class StreamProgressTracker:
+    """Tracks streaming steps and flushes rate-limited progress updates to Telegram."""
+
+    def __init__(
+        self,
+        progress_callback: Callable[[str], None] | None = None,
+        throttle_interval: float = 1.2,
+    ) -> None:
+        self.progress_callback = progress_callback
+        self.throttle_interval = throttle_interval
+        self.start_time = time.time()
+        self.completed_steps: list[str] = []
+        self.active_activity: str = "Thinking..."
+        self.spinner_idx = 0
+        self.last_update_time = 0.0
+        self.last_card_text = ""
+        self.stop_event = threading.Event()
+        self.lock = threading.Lock()
+        self.ticker_thread: threading.Thread | None = None
+
+        if self.progress_callback is not None:
+            self.ticker_thread = threading.Thread(
+                target=self._ticker_loop,
+                name="agy-progress-ticker",
+                daemon=True,
+            )
+            self.ticker_thread.start()
+
+    def _ticker_loop(self) -> None:
+        while not self.stop_event.wait(timeout=self.throttle_interval):
+            self.flush(force=True)
+
+    def set_activity(self, activity: str) -> None:
+        with self.lock:
+            self.active_activity = activity
+        self.flush()
+
+    def add_completed_step(
+        self,
+        step_desc: str,
+        next_activity: str = "Thinking...",
+    ) -> None:
+        with self.lock:
+            self.completed_steps.append(step_desc)
+            self.active_activity = next_activity
+        self.flush()
+
+    def flush(self, force: bool = False) -> None:
+        if self.progress_callback is None:
+            return
+
+        with self.lock:
+            if self.stop_event.is_set():
+                return
+            now = time.time()
+            if not force and (now - self.last_update_time < self.throttle_interval):
+                return
+
+            elapsed = int(now - self.start_time)
+            spinner = SPINNER_FRAMES[self.spinner_idx % len(SPINNER_FRAMES)]
+            self.spinner_idx += 1
+
+            card = format_progress_card(
+                elapsed_seconds=elapsed,
+                completed_steps=self.completed_steps,
+                active_activity=self.active_activity,
+                spinner_frame=spinner,
+            )
+
+            if card == self.last_card_text:
+                return
+
+            self.last_update_time = now
+            self.last_card_text = card
+
+        with contextlib.suppress(Exception):
+            self.progress_callback(card)
+
+    def stop(self) -> None:
+        self.stop_event.set()
+        if self.ticker_thread and self.ticker_thread.is_alive():
+            self.ticker_thread.join(timeout=0.5)
 
 
 def run_antigravity_stream(  # noqa: C901
@@ -729,14 +1034,17 @@ def run_antigravity_stream(  # noqa: C901
             active_processes[chat_id] = process
 
             final_response = ""
-            last_update_time = 0.0
-            current_activity = "thinking..."
             turn_usage = {}
             generated_files = []
             step_counter = 0
 
             start_time = time.time()
             max_duration = 600  # 10 minutes timeout watchdog
+
+            tracker = StreamProgressTracker(
+                progress_callback=progress_callback,
+                throttle_interval=1.2,
+            )
 
             try:
                 for line in iter(process.stdout.readline, ""):
@@ -778,32 +1086,68 @@ def run_antigravity_stream(  # noqa: C901
                                 )
                                 if delta:
                                     final_response += delta
+                                    tracker.set_activity("Drafting response...")
+                                elif step.get("state") == "DONE":
+                                    tracker.set_activity("Thinking...")
 
-                            tool_call = step.get("tool_call") or step.get("tool") or {}
-                            tool_name = tool_call.get("name", step_type)
-                            args = tool_call.get("args", {})
-
-                            if tool_name in [
-                                "write_to_file",
-                                "generate_image",
-                                "multi_replace_file_content",
-                            ]:
-                                target = args.get("TargetFile") or args.get("ImageName")
-                                if target and os.path.exists(target):
-                                    generated_files.append(target)
-
-                            current_activity = _determine_stream_activity(
-                                tool_name,
-                                args,
+                            tool_name = (
+                                step.get("tool_name")
+                                or (step.get("tool_info") or {}).get("name")
+                                or (step.get("tool_call") or {}).get("name")
+                                or (step.get("tool") or {}).get("name")
+                                or ""
                             )
+                            tool_info = step.get("tool_info") or {}
+                            params = (
+                                tool_info.get("parameters")
+                                or (step.get("tool_call") or {}).get("args")
+                                or (step.get("tool") or {}).get("args")
+                                or {}
+                            )
+                            state = step.get("state", "")
+                            dur = step.get("duration_seconds")
 
-                            now = time.time()
-                            if progress_callback and (now - last_update_time >= 1.2):
-                                with contextlib.suppress(Exception):
-                                    progress_callback(
-                                        f"<i>{html.escape(current_activity)}</i>",
+                            if tool_name:
+                                if tool_name in [
+                                    "write_to_file",
+                                    "generate_image",
+                                    "multi_replace_file_content",
+                                ]:
+                                    target = params.get("TargetFile") or params.get(
+                                        "ImageName",
                                     )
-                                last_update_time = now
+                                    if (
+                                        target
+                                        and os.path.exists(target)
+                                        and target not in generated_files
+                                    ):
+                                        generated_files.append(target)
+
+                                if state == "ACTIVE":
+                                    desc = format_tool_step_description(
+                                        tool_name,
+                                        params,
+                                        done=False,
+                                    )
+                                    tracker.set_activity(desc)
+                                elif state == "DONE":
+                                    desc = format_tool_step_description(
+                                        tool_name,
+                                        params,
+                                        done=True,
+                                        duration_seconds=dur,
+                                    )
+                                    tracker.add_completed_step(
+                                        desc,
+                                        next_activity="Thinking...",
+                                    )
+                                else:
+                                    desc = format_tool_step_description(
+                                        tool_name,
+                                        params,
+                                        done=False,
+                                    )
+                                    tracker.set_activity(desc)
 
                         elif event_type == "result":
                             res = data.get("result", {})
@@ -812,7 +1156,9 @@ def run_antigravity_stream(  # noqa: C901
                                 final_response = res_text
                             if res.get("usage"):
                                 turn_usage = res.get("usage")
+                            tracker.set_activity("Done")
             finally:
+                tracker.stop()
                 if process.stdout and not process.stdout.closed:
                     process.stdout.close()
                 with contextlib.suppress(Exception):
@@ -828,6 +1174,9 @@ def run_antigravity_stream(  # noqa: C901
                 t_tok = turn_usage["total_tokens"]
                 usage_stats["session_tokens"] += t_tok
                 usage_stats["total_tokens"] += t_tok
+
+            if tracker.completed_steps:
+                turn_usage["steps"] = list(tracker.completed_steps)
 
             resp_text = (
                 final_response.strip()

@@ -165,7 +165,7 @@ async def handle_text_prompt(message: Message, bot: Bot) -> None:
 
 
 async def process_agent_prompt(bot: Bot, message: Message, prompt: str) -> None:
-    status_text = "<i>thinking...</i>"
+    status_text = "🧠 <b>Thinking...</b> <i>(0s)</i>"
     await process_custom_agent_prompt(
         bot=bot,
         chat_id=message.chat.id,
@@ -239,36 +239,64 @@ async def process_custom_agent_prompt(  # noqa: C901
     async def _worker() -> None:  # noqa: C901
         loop = asyncio.get_running_loop()
         last_edit_time = 0.0
+        last_sent_text = ""
+        latest_text = ""
+        is_editing = False
+        is_finished = False
 
         def sync_progress_callback(text: str) -> None:
-            nonlocal last_edit_time
-            if not status_msg:
+            nonlocal latest_text
+            if not status_msg or is_finished:
                 return
-            now = time.time()
-            if now - last_edit_time < 1.2:
-                return
-            last_edit_time = now
+            latest_text = text
+            asyncio.run_coroutine_threadsafe(_trigger_edit(), loop)
 
-            async def _edit() -> None:
-                try:
-                    await bot.edit_message_text(
-                        text=text,
-                        chat_id=chat_id,
-                        message_id=status_msg.message_id,
-                        parse_mode="HTML",
-                        reply_markup=cancel_markup,
-                    )
-                except Exception:
-                    with contextlib.suppress(Exception):
+        async def _trigger_edit() -> None:
+            nonlocal is_editing, last_sent_text, last_edit_time
+            if is_editing or is_finished:
+                return
+            is_editing = True
+            try:
+                while not is_finished and latest_text and latest_text != last_sent_text:
+                    now = time.time()
+                    elapsed = now - last_edit_time
+                    if elapsed < 1.0:
+                        await asyncio.sleep(1.0 - elapsed)
+                    if is_finished:
+                        break
+
+                    text_to_send = latest_text
+                    if text_to_send == last_sent_text:
+                        break
+
+                    # Enforce strict length under Telegram's 4096 character limit
+                    if len(text_to_send) > 3800:
+                        text_to_send = text_to_send[:3700] + "\n<i>(truncated)</i>"
+
+                    last_sent_text = text_to_send
+                    last_edit_time = time.time()
+
+                    try:
                         await bot.edit_message_text(
-                            text=re.sub(r"<[^>]+>", "", text),
+                            text=text_to_send,
                             chat_id=chat_id,
                             message_id=status_msg.message_id,
-                            parse_mode=None,
+                            parse_mode="HTML",
                             reply_markup=cancel_markup,
                         )
-
-            asyncio.run_coroutine_threadsafe(_edit(), loop)
+                    except Exception:
+                        if is_finished:
+                            break
+                        with contextlib.suppress(Exception):
+                            await bot.edit_message_text(
+                                text=re.sub(r"<[^>]+>", "", text_to_send),
+                                chat_id=chat_id,
+                                message_id=status_msg.message_id,
+                                parse_mode=None,
+                                reply_markup=cancel_markup,
+                            )
+            finally:
+                is_editing = False
 
         try:
             async with ChatActionSender.typing(chat_id=chat_id, bot=bot, interval=4.0):
@@ -280,6 +308,7 @@ async def process_custom_agent_prompt(  # noqa: C901
                     progress_callback=sync_progress_callback,
                 )
 
+            is_finished = True
             if status_msg:
                 with contextlib.suppress(Exception):
                     await bot.delete_message(
@@ -293,8 +322,11 @@ async def process_custom_agent_prompt(  # noqa: C901
                 cur_effort,
                 user_ws,
             )
+            steps_badge = formatter.format_execution_steps(
+                turn_usage.get("steps", []) if turn_usage else [],
+            )
 
-            final_output = header_card + formatted_response
+            final_output = header_card + steps_badge + formatted_response
             if turn_usage and turn_usage.get("total_tokens"):
                 tot = turn_usage.get("total_tokens", 0)
                 inp = turn_usage.get("input_tokens", 0)

@@ -1,5 +1,6 @@
 from formatter import (
     format_error_card,
+    format_execution_steps,
     format_response_header,
     markdown_to_telegram_html,
 )
@@ -157,6 +158,45 @@ def test_non_header_hashes():
     assert "🚀" not in html_out
     assert "#not-a-header" in html_out
     assert "#1 item" in html_out
+
+
+def test_format_execution_steps_empty():
+    assert format_execution_steps([]) == ""
+
+
+def test_format_execution_steps_normal():
+    steps = [
+        "Listed directory <code>handlers/</code> <i>(0.01s)</i>",
+        "Read <code>bot.py</code> <i>(0.02s)</i>",
+        "Ran <code>pytest</code> <i>(8.98s)</i>",
+    ]
+    out = format_execution_steps(steps)
+    assert "<blockquote expandable>" in out
+    assert "<b>⚡ Execution Steps (3):</b>" in out
+    assert "✓ Listed directory <code>handlers/</code>" in out
+    assert "✓ Read <code>bot.py</code>" in out
+    assert "✓ Ran <code>pytest</code>" in out
+    assert out.endswith("</blockquote>\n\n")
+
+
+def test_format_execution_steps_truncation():
+    steps = [f"Step {i}" for i in range(1, 20)]
+    out = format_execution_steps(steps, max_display=10)
+    assert "<b>⚡ Execution Steps (19):</b>" in out
+    assert "✓ Step 1" in out
+    assert "✓ Step 2" in out
+    assert "<i>... 11 earlier steps</i>" in out
+    assert "✓ Step 19" in out
+    assert "✓ Step 12" in out
+    assert "✓ Step 5" not in out
+
+
+def test_format_execution_steps_max_length_limit():
+    giant_steps = ["A" * 200 for _ in range(20)]
+    out = format_execution_steps(giant_steps)
+    # Ensure it's capped strictly under Telegram limits
+    assert len(out) < 1500
+    assert "<i>(truncated)</i>" in out
 
 
 if __name__ == "__main__":

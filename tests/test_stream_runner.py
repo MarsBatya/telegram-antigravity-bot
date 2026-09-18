@@ -1,6 +1,7 @@
 import base64
 import json
 import os
+import time
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
@@ -658,3 +659,293 @@ def test_atomic_session_persistence_concurrent(tmp_path):
     assert len(stream_runner.active_conversations) == 10
     for i in range(10):
         assert stream_runner.active_conversations[i] == f"conv-{i}"
+
+
+def test_format_tool_step_description():
+    # run_command active
+    cmd_act = stream_runner.format_tool_step_description(
+        "run_command",
+        {"CommandLine": "pytest tests/ -v"},
+        done=False,
+    )
+    assert "Running command:" in cmd_act
+    assert "<code>pytest tests/ -v</code>" in cmd_act
+
+    # run_command done with duration
+    cmd_done = stream_runner.format_tool_step_description(
+        "run_command",
+        {"CommandLine": "pytest"},
+        done=True,
+        duration_seconds=1.456,
+    )
+    assert "Ran <code>pytest</code>" in cmd_done
+    assert "(1.46s)" in cmd_done
+
+    # Special character escaping in command line
+    cmd_esc = stream_runner.format_tool_step_description(
+        "run_command",
+        {"CommandLine": "echo '<tag>' > out.txt & cat"},
+        done=True,
+    )
+    assert "&lt;tag&gt;" in cmd_esc
+    assert "&amp;" in cmd_esc
+
+    # view_file
+    vf_act = stream_runner.format_tool_step_description(
+        "view_file",
+        {"AbsolutePath": "/home/mars/project/bot.py"},
+        done=False,
+    )
+    assert "Reading <code>bot.py</code>" in vf_act
+
+    vf_done = stream_runner.format_tool_step_description(
+        "view_file",
+        {"TargetFile": "/path/to/config.py"},
+        done=True,
+        duration_seconds=0.03,
+    )
+    assert "Read <code>config.py</code>" in vf_done
+    assert "(0.03s)" in vf_done
+
+    # replace_file_content and write_to_file
+    ed_done = stream_runner.format_tool_step_description(
+        "replace_file_content",
+        {"TargetFile": "/path/to/stream.py"},
+        done=True,
+    )
+    assert "Edited <code>stream.py</code>" in ed_done
+
+    wr_act = stream_runner.format_tool_step_description(
+        "write_to_file",
+        {"TargetFile": "/path/to/new.py"},
+        done=False,
+    )
+    assert "Writing <code>new.py</code>" in wr_act
+
+    # list_dir
+    ld_done = stream_runner.format_tool_step_description(
+        "list_dir",
+        {"DirectoryPath": "/path/to/handlers/"},
+        done=True,
+        duration_seconds=0.01,
+    )
+    assert "Listed directory <code>handlers/</code>" in ld_done
+
+    # grep_search
+    grep_done = stream_runner.format_tool_step_description(
+        "grep_search",
+        {"Query": "def run_antigravity"},
+        done=True,
+    )
+    assert "Searched <code>def run_antigravity</code>" in grep_done
+
+    # search_web
+    web_act = stream_runner.format_tool_step_description(
+        "search_web",
+        {"query": "aiogram 3 docs"},
+        done=False,
+    )
+    assert "Searching web: <code>aiogram 3 docs</code>" in web_act
+
+    # fallback toolAction
+    fb_done = stream_runner.format_tool_step_description(
+        "custom_tool",
+        {"toolAction": "Optimizing database"},
+        done=True,
+        duration_seconds=2.5,
+    )
+    assert "Optimizing database" in fb_done
+    assert "(2.50s)" in fb_done
+
+
+def test_format_progress_card():
+    # 1. Initial thinking without steps
+    card_thk = stream_runner.format_progress_card(
+        elapsed_seconds=3,
+        completed_steps=[],
+        active_activity="thinking...",
+    )
+    assert "🧠 <b>Thinking...</b> <i>(3s)</i>" in card_thk
+
+    # 2. Drafting without steps
+    card_draft = stream_runner.format_progress_card(
+        elapsed_seconds=7,
+        completed_steps=[],
+        active_activity="drafting response...",
+    )
+    assert "✍️ <b>Drafting response...</b> <i>(7s)</i>" in card_draft
+
+    # 3. Running tool without completed steps
+    card_tool_only = stream_runner.format_progress_card(
+        elapsed_seconds=2,
+        completed_steps=[],
+        active_activity="Running command: <code>pwd</code>",
+        spinner_frame="⠋",
+    )
+    assert "⚡ <b>Working...</b> <i>(2s)</i>" in card_tool_only
+    assert "⠋ <i>Running command: <code>pwd</code></i>" in card_tool_only
+
+    # 4. With completed steps and active tool
+    steps = [
+        "Listed directory <code>handlers/</code> <i>(0.01s)</i>",
+        "Read <code>bot.py</code> <i>(0.02s)</i>",
+    ]
+    card_multi = stream_runner.format_progress_card(
+        elapsed_seconds=5,
+        completed_steps=steps,
+        active_activity="Running command: <code>pytest</code>",
+        spinner_frame="⠙",
+    )
+    assert "⚡ <b>Working...</b> <i>(5s)</i>" in card_multi
+    assert "✓ Listed directory <code>handlers/</code>" in card_multi
+    assert "✓ Read <code>bot.py</code>" in card_multi
+    assert "⠙ <i>Running command: <code>pytest</code></i>" in card_multi
+
+    # 5. When drafting response after steps
+    card_drafting_after_steps = stream_runner.format_progress_card(
+        elapsed_seconds=10,
+        completed_steps=steps,
+        active_activity="Drafting response...",
+    )
+    assert "✍️ <i>Drafting response...</i>" in card_drafting_after_steps
+
+    # 6. Truncation when more than 5 steps
+    many_steps = [f"Step {i}" for i in range(1, 9)]
+    card_many = stream_runner.format_progress_card(
+        elapsed_seconds=20,
+        completed_steps=many_steps,
+        active_activity="done",
+    )
+    assert "<i>... 4 earlier steps</i>" in card_many
+    assert "✓ Step 8" in card_many
+    assert "✓ Step 5" in card_many
+    assert "✓ Step 1" not in card_many
+
+    # 7. Card strictly bounded under Telegram limits even with giant steps
+    giant_steps = ["G" * 500 for _ in range(10)]
+    card_giant = stream_runner.format_progress_card(
+        elapsed_seconds=10,
+        completed_steps=giant_steps,
+        active_activity="A" * 500,
+    )
+    assert len(card_giant) <= 3500
+
+
+def test_stream_progress_tracker():
+    messages = []
+
+    def on_progress(text: str) -> None:
+        messages.append(text)
+
+    tracker = stream_runner.StreamProgressTracker(
+        progress_callback=on_progress,
+        throttle_interval=0.05,
+    )
+    try:
+        tracker.set_activity("Running command: <code>pwd</code>")
+        time.sleep(0.08)
+        tracker.add_completed_step("Ran <code>pwd</code>")
+        time.sleep(0.08)
+        tracker.set_activity("Drafting response...")
+        tracker.flush(force=True)
+
+        assert len(messages) >= 2
+        # Check that steps appear in flushed cards
+        last_msg = messages[-1]
+        assert "Ran <code>pwd</code>" in last_msg
+        assert "Drafting response..." in last_msg
+    finally:
+        tracker.stop()
+
+
+def test_run_antigravity_stream_multi_step_flow(tmp_path):
+    agy_mock = str(tmp_path / "agy")
+    with open(agy_mock, "w") as f:
+        f.write("#!/bin/sh\nexit 0\n")
+    os.chmod(agy_mock, 0o755)  # noqa: S103
+
+    events = [
+        json.dumps({"event": "init", "conversation_id": "conv-multi-step"}),
+        # Step 1: Tool active
+        json.dumps(
+            {
+                "event": "step_update",
+                "step_update": {
+                    "step_index": 1,
+                    "state": "ACTIVE",
+                    "step_type": "tool",
+                    "tool_name": "run_command",
+                    "tool_info": {
+                        "name": "run_command",
+                        "parameters": {"CommandLine": "git status"},
+                    },
+                },
+            },
+        ),
+        # Step 1: Tool done
+        json.dumps(
+            {
+                "event": "step_update",
+                "step_update": {
+                    "step_index": 1,
+                    "state": "DONE",
+                    "step_type": "tool",
+                    "tool_name": "run_command",
+                    "duration_seconds": 0.05,
+                    "tool_info": {
+                        "name": "run_command",
+                        "parameters": {"CommandLine": "git status"},
+                        "output": "clean",
+                    },
+                },
+            },
+        ),
+        # Step 2: Agent drafting text
+        json.dumps(
+            {
+                "event": "step_update",
+                "step_update": {
+                    "step_index": 2,
+                    "state": "ACTIVE",
+                    "step_type": "agent_response",
+                    "text_delta": "Everything is up to date!",
+                },
+            },
+        ),
+        # Result
+        json.dumps(
+            {
+                "event": "result",
+                "result": {
+                    "response": "Everything is up to date!",
+                    "usage": {"total_tokens": 80},
+                },
+            },
+        ),
+    ]
+
+    mock_process = MagicMock()
+    mock_process.stdout.readline.side_effect = [e + "\n" for e in events] + [""]
+    mock_process.wait.return_value = 0
+
+    captured_progress = []
+
+    def on_progress(text: str) -> None:
+        captured_progress.append(text)
+
+    with patch.object(config, "AGY_PATH", agy_mock):
+        with patch("subprocess.Popen", return_value=mock_process):
+            with patch.object(stream_runner, "save_persistent_sessions"):
+                resp, usage, files = stream_runner.run_antigravity_stream(
+                    "Check git status",
+                    12345,
+                    workspace_dir=str(tmp_path),
+                    progress_callback=on_progress,
+                )
+
+                assert resp == "Everything is up to date!"
+                assert usage.get("total_tokens") == 80
+                assert "steps" in usage
+                assert len(usage["steps"]) == 1
+                assert "git status" in usage["steps"][0]
+                assert len(captured_progress) > 0
