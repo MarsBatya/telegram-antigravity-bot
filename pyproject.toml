@@ -5,14 +5,15 @@ description = "Telegram bot interface for Antigravity AI Agent CLI"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "aiogram>=3.17.0",
     "psutil>=5.9.8",
-    "pytelegrambotapi>=4.16.1",
     "python-dotenv>=1.0.1",
 ]
 
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
+    "pytest-asyncio>=0.24.0",
     "ruff>=0.16.8",
 ]
 
@@ -31,4 +32,6 @@ indent-style = "space"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py", "*_test.py"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 

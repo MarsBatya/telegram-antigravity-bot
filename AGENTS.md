@@ -2,10 +2,10 @@
 
 ## Overview & Architecture
 
-`telegram-antigravity-bot` is a Python Telegram bot interface for the Antigravity AI Agent CLI (`agy`). It enables remote server administration, code execution, multi-file editing, and session management directly from Telegram using `pyTelegramBotAPI` (`telebot`).
+`telegram-antigravity-bot` is a Python Telegram bot interface for the Antigravity AI Agent CLI (`agy`). It enables remote server administration, code execution, multi-file editing, and session management directly from Telegram using `aiogram 3.x` (`aiogram v3`).
 
 - **Runtime**: Python 3.12 (`>=3.10` in `pyproject.toml`) managed with `uv`.
-- **Concurrency model**: Synchronous `telebot` polling with background `threading.Thread` workers for long-running CLI stream execution.
+- **Concurrency model**: Asynchronous `aiogram v3` event loop polling with background `asyncio` tasks and threadpool workers (`asyncio.to_thread`) for long-running CLI stream execution.
 - **Execution engine**: Spawns `agy` CLI sub-processes via `subprocess.Popen`, parsing real-time line-delimited JSON events (`thought`, `tool_call`, `result`).
 - **Persistence**: File-backed session mapping (`sessions.json`) tracking active conversations, workspace directories, and model settings per chat.
 
@@ -13,12 +13,22 @@
 
 ## Repository Map
 
-- `bot.py`: Telegram bot entry point, command registry (`/start`, `/model`, `/resume`, `/smash`, etc.), callback query router, and interactive keyboards.
+- `bot.py`: Telegram bot entry point, Dispatcher setup, router registry, long-polling runner, and re-export facade.
+- `handlers/`: Modular aiogram routers:
+  - `commands.py`: General commands (`/start`, `/help`, `/status`, `/usage`, `/logs`, `/stop`, `/cancel`).
+  - `settings.py`: Model, reasoning effort, and mode selectors (`/model`, `/effort`, `/mode`).
+  - `explorer.py`: Interactive directory tree browser and workspace picker (`/tree`, `/workspace`).
+  - `sessions.py`: Active session card, resume, new, rename, and deletion (`/resume`, `/new`, `/rename`, `/delete`).
+  - `agent.py`: Agent execution orchestrator, text prompt runner, media downloader, and task modes (`/smash`, `/goal`, `/plan`).
+- `callbacks.py`: Type-safe `CallbackData` subclasses for inline buttons.
+- `keyboards.py`: Interactive reply keyboard and inline keyboard builders.
+- `middlewares.py`: Global authentication middleware (`AuthMiddleware`) verifying `ALLOWED_USER_IDS`.
+- `bot_utils.py`: `PathMapper` for path encoding, progress bar formatting, command menu registration, and safe message chunking.
 - `stream_runner.py`: Subprocess runner for `agy` CLI streaming execution, stdout JSON event parser, session persistence, lock management, and live quota checking.
 - `agent_runner.py`: Public facade exporting stream runner utilities for execution and session management.
 - `formatter.py`: Converts agent markdown output into Telegram HTML (`<pre><code>`, `<b>`, `<i>`, `<blockquote expandable>`).
 - `config.py`: Environment configuration loader (`.env`), Telegram user whitelist (`ALLOWED_USER_IDS`), and default agent persona.
-- `tests/`: Pytest test suite covering bot commands, stream processing, formatting, and config.
+- `tests/`: Pytest test suite covering modular routers, stream processing, formatting, and config.
 - `sessions.json`: Persisted chat sessions and workspace state (managed dynamically; do not manually overwrite).
 
 ---
@@ -87,7 +97,7 @@ All Python code in this repository must use strict, modern type annotations conf
 4. **Specific Types Over `Any`**:
    - Avoid `Any` where concrete types, unions, or type aliases can be used.
    - For callbacks and functions passed as arguments, use `collections.abc.Callable` or `typing.Callable` (e.g., `Callable[[str, dict[str, Any]], None]`).
-   - For Telegram entities, import types from `telebot.types` (e.g., `types.Message`, `types.CallbackQuery`, `types.InlineKeyboardMarkup`).
+   - For Telegram entities, import types from `aiogram.types` (e.g., `Message`, `CallbackQuery`, `InlineKeyboardMarkup`).
    - Use `collections.abc.Generator` or `collections.abc.Iterator` for generator functions.
 
 5. **Type Narrowing & Guards**:
@@ -99,10 +109,10 @@ All Python code in this repository must use strict, modern type annotations conf
 ## Key Conventions & Constraints
 
 - **Telegram Message Limits**: Telegram enforces a strict 4096-character limit per message. When sending streamed chunks or formatted output, route messages through `formatter.py` or chunking logic.
-- **Callback Data Size**: Inline keyboard `callback_data` has a 64-byte limit. Always use `PathMapper` (in `bot.py`) to map long filesystem paths to short tokens (e.g. `p1`, `p2`).
-- **Thread Safety & Background Tasks**: Do not run blocking CLI executions directly inside Telegram message handlers. Spawn tasks via `threading.Thread` and use `stream_runner.chat_locks` to prevent duplicate concurrent processes per chat.
+- **Callback Data Size**: Inline keyboard `callback_data` has a 64-byte limit. Always use `PathMapper` (in `bot_utils.py`) to map long filesystem paths to short tokens (e.g. `p1`, `p2`).
+- **Thread Safety & Background Tasks**: Do not run blocking CLI executions directly on the asyncio event loop. Spawn tasks via `asyncio.create_task` and offload blocking subprocess streams via `asyncio.to_thread` with `stream_runner.chat_locks` to prevent duplicate concurrent processes per chat.
 - **HTML Escaping**: Telegram parse mode is HTML (`parse_mode="HTML"`). All dynamic user inputs or agent outputs must have HTML-sensitive characters (`<`, `>`, `&`) properly escaped via `html.escape` unless already converted into valid Telegram HTML tags by `formatter.py`.
-- **Authorized Access**: Any new handlers or administrative features must respect `ALLOWED_USER_IDS` authorization checks.
+- **Authorized Access**: Any new handlers or administrative features must respect `ALLOWED_USER_IDS` authorization checks (managed centrally via `AuthMiddleware`).
 
 ---
 
