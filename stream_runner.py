@@ -6,7 +6,6 @@ import json
 import os
 import re
 import shutil
-import signal
 import subprocess
 import threading
 import time
@@ -17,167 +16,86 @@ from collections.abc import Callable
 
 import config
 
-SESSION_FILE = getattr(
-    config,
-    "SESSION_FILE",
-    os.path.join(os.path.dirname(__file__), "sessions.json"),
+from storage import (
+    SessionStorage,
+    _terminate_process_and_group,
+    calculate_session_tokens as calculate_session_tokens,
 )
-
-active_conversations = {}
-active_workspaces = {}
-active_settings = {}  # chat_id -> {'model': ..., 'effort': ..., 'mode': ...}
-chat_token_usage = {}  # chat_id -> {'session_tokens': 0, 'total_tokens': 0}
-active_processes = {}  # chat_id -> subprocess.Popen instance
-
-# Per-chat task queue and lock to prevent concurrent process collisions
-chat_locks = {}
-_session_file_lock = threading.Lock()
 
 SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
 
-def load_persistent_sessions(file_path: str | None = None) -> None:
+def load_persistent_sessions(
+    storage: SessionStorage,
+    file_path: str | None = None,
+) -> None:
     """Loads active conversation mapping, workspaces, and chat settings
     from persistent disk storage.
     """
-    global active_conversations, active_workspaces, active_settings
-    target_file = file_path or getattr(config, "SESSION_FILE", SESSION_FILE)
-    with _session_file_lock:
-        if os.path.exists(target_file):
-            try:
-                with open(target_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    convs = data.get("conversations", {})
-                    workspaces = data.get("workspaces", {})
-                    settings = data.get("settings", {})
-                    if not convs and not workspaces and isinstance(data, dict):
-                        convs = data
-
-                    active_conversations = {int(k): v for k, v in convs.items()}
-                    active_workspaces = {int(k): v for k, v in workspaces.items()}
-                    active_settings = {int(k): v for k, v in settings.items()}
-                    return
-            except Exception as e:
-                print(f"[ERROR] Loading sessions.json: {e}")
-        active_conversations = {}
-        active_workspaces = {}
-        active_settings = {}
+    storage.load(file_path)
 
 
-def save_persistent_sessions(file_path: str | None = None) -> None:
+def save_persistent_sessions(
+    storage: SessionStorage,
+    file_path: str | None = None,
+) -> None:
     """Saves active conversation mapping, workspaces, and settings
     to persistent disk storage atomically.
     """
-    target_file = file_path or getattr(config, "SESSION_FILE", SESSION_FILE)
-    with _session_file_lock:
-        try:
-            target_dir = os.path.dirname(os.path.abspath(target_file))
-            os.makedirs(target_dir, exist_ok=True)
-            data = {
-                "conversations": {str(k): v for k, v in active_conversations.items()},
-                "workspaces": {str(k): v for k, v in active_workspaces.items()},
-                "settings": {str(k): v for k, v in active_settings.items()},
-            }
-            temp_file = target_file + f".tmp.{os.getpid()}.{threading.get_ident()}"
-            with open(temp_file, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2)
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(temp_file, target_file)
-        except Exception as e:
-            print(f"[ERROR] Saving sessions.json: {e}")
-
-
-load_persistent_sessions()
+    storage.save(file_path)
 
 
 def get_chat_setting(
     chat_id: int,
     key: str,
     default: str | None = None,
+    *,
+    storage: SessionStorage,
 ) -> str | None:
-    if chat_id not in active_settings:
-        active_settings[chat_id] = {
-            "model": config.DEFAULT_MODEL,
-            "effort": config.DEFAULT_EFFORT,
-            "mode": config.DEFAULT_MODE,
-        }
-    return active_settings[chat_id].get(key, default)
+    return storage.get_setting(chat_id, key, default)
 
 
-def set_chat_setting(chat_id: int, key: str, value: str) -> None:
-    if chat_id not in active_settings:
-        active_settings[chat_id] = {
-            "model": config.DEFAULT_MODEL,
-            "effort": config.DEFAULT_EFFORT,
-            "mode": config.DEFAULT_MODE,
-        }
-    active_settings[chat_id][key] = value
-    save_persistent_sessions()
+def set_chat_setting(
+    chat_id: int,
+    key: str,
+    value: str,
+    *,
+    storage: SessionStorage,
+) -> None:
+    storage.set_setting(chat_id, key, value)
 
 
-def get_chat_workspace(chat_id: int) -> str:
-    return active_workspaces.get(chat_id) or config.DEFAULT_WORKSPACE
+def get_chat_workspace(
+    chat_id: int,
+    *,
+    storage: SessionStorage,
+) -> str:
+    return storage.get_workspace(chat_id)
 
 
-def set_chat_workspace(chat_id: int, workspace_path: str) -> None:
-    active_workspaces[chat_id] = os.path.abspath(workspace_path)
-    save_persistent_sessions()
+def set_chat_workspace(
+    chat_id: int,
+    workspace_path: str,
+    *,
+    storage: SessionStorage,
+) -> None:
+    storage.set_workspace(chat_id, workspace_path)
 
 
-def get_chat_lock(chat_id: int) -> threading.Lock:
-    if chat_id not in chat_locks:
-        chat_locks[chat_id] = threading.Lock()
-    return chat_locks[chat_id]
+def get_chat_lock(
+    chat_id: int,
+    *,
+    storage: SessionStorage,
+) -> threading.Lock:
+    return storage.get_lock(chat_id)
 
 
-def get_token_usage(chat_id: int) -> dict[str, int]:
-    if chat_id not in chat_token_usage:
-        chat_token_usage[chat_id] = {"session_tokens": 0, "total_tokens": 0}
-
-    conv_id = active_conversations.get(chat_id)
-    if (
-        isinstance(conv_id, str)
-        and conv_id
-        and chat_token_usage[chat_id]["session_tokens"] == 0
-    ):
-        chat_token_usage[chat_id]["session_tokens"] = calculate_session_tokens(conv_id)
-
-    return chat_token_usage[chat_id]
-
-
-def calculate_session_tokens(conv_id: str, brain_dir: str | None = None) -> int:
-    """Calculates total tokens accumulated in a conversation session
-    from transcript.jsonl.
-    """
-    target_brain = brain_dir or getattr(
-        config,
-        "BRAIN_DIR",
-        os.path.expanduser("~/.gemini/antigravity-cli/brain"),
-    )
-    transcript_file = os.path.join(
-        target_brain,
-        conv_id,
-        ".system_generated",
-        "logs",
-        "transcript.jsonl",
-    )
-    if not os.path.exists(transcript_file):
-        return 0
-
-    total_tokens = 0
-    try:
-        with open(transcript_file, "r", encoding="utf-8") as f:
-            for line in f:
-                with contextlib.suppress(Exception):
-                    data = json.loads(line)
-                    if data.get("type") == "PLANNER_RESPONSE":
-                        usage = data.get("usage")
-                        if isinstance(usage, dict) and "total_tokens" in usage:
-                            total_tokens += usage.get("total_tokens", 0)
-    except Exception as e:
-        print(f"[ERROR] Failed to calculate session tokens: {e}")
-    return total_tokens
+def get_token_usage(
+    chat_id: int,
+    *,
+    storage: SessionStorage,
+) -> dict[str, int]:
+    return storage.get_token_usage(chat_id)
 
 
 def make_ascii_bar(pct: float, length: int = 20) -> str:
@@ -379,48 +297,20 @@ def fetch_bot_logs(lines_count: int = 30) -> str:
         return f"❌ Failed to fetch logs: {e}"
 
 
-def _terminate_process_and_group(proc: subprocess.Popen[Any]) -> None:
-    """Terminates or kills a subprocess and its entire process group safely."""
-    pid = getattr(proc, "pid", None)
-    if isinstance(pid, int):
-        with contextlib.suppress(Exception):
-            pgid = os.getpgid(pid)
-            os.killpg(pgid, signal.SIGTERM)
-    with contextlib.suppress(Exception):
-        proc.terminate()
-    time.sleep(0.3)
-    if proc.poll() is None:
-        if isinstance(pid, int):
-            with contextlib.suppress(Exception):
-                pgid = os.getpgid(pid)
-                os.killpg(pgid, signal.SIGKILL)
-        with contextlib.suppress(Exception):
-            proc.kill()
-
-
-def cancel_chat_process(chat_id: int) -> bool:
+def cancel_chat_process(
+    chat_id: int,
+    *,
+    storage: SessionStorage,
+) -> bool:
     """Cancels the active agy child process and process group for a given chat_id."""
-    proc = active_processes.get(chat_id)
-    if proc and proc.poll() is None:
-        try:
-            _terminate_process_and_group(proc)
-            active_processes.pop(chat_id, None)
-            return True
-        except Exception as e:
-            print(f"[ERROR] Failed to kill process for chat {chat_id}: {e}")
-            return False
-    return False
+    return storage.cancel_chat_process(chat_id)
 
 
-def cleanup_all_active_processes() -> None:
+def cleanup_all_active_processes(
+    storage: SessionStorage,
+) -> None:
     """Terminates all running subprocesses and their process groups across all chats."""
-    for chat_id, proc in list(active_processes.items()):
-        try:
-            if proc.poll() is None:
-                _terminate_process_and_group(proc)
-        except Exception as e:
-            print(f"[ERROR] Failed to cleanup process for chat {chat_id}: {e}")
-    active_processes.clear()
+    storage.cleanup_all_active_processes()
 
 
 def _parse_session_entry(folder: str) -> dict[str, str]:
@@ -972,6 +862,8 @@ def run_antigravity_stream(  # noqa: C901
     chat_id: int,
     workspace_dir: str | None = None,
     progress_callback: Callable[[str], None] | None = None,
+    *,
+    storage: SessionStorage,
 ) -> tuple[str, dict[str, Any], list[str]]:
     """Runs agy with stream-json propagating --model, --effort, and --mode
     flags with animated spinners.
@@ -979,16 +871,26 @@ def run_antigravity_stream(  # noqa: C901
     if not os.path.exists(config.AGY_PATH):
         return f"❌ agy executable not found at <code>{config.AGY_PATH}</code>", {}, []
 
-    lock = get_chat_lock(chat_id)
+    target_storage = storage
+    lock = target_storage.get_lock(chat_id)
     with lock:
-        cwd = workspace_dir or get_chat_workspace(chat_id)
+        cwd = workspace_dir or target_storage.get_workspace(chat_id)
         os.makedirs(cwd, exist_ok=True)
 
-        model = get_chat_setting(chat_id, "model", config.DEFAULT_MODEL)
-        effort = get_chat_setting(chat_id, "effort", config.DEFAULT_EFFORT)
-        mode = get_chat_setting(chat_id, "mode", config.DEFAULT_MODE)
+        model = (
+            target_storage.get_setting(chat_id, "model", config.DEFAULT_MODEL)
+            or config.DEFAULT_MODEL
+        )
+        effort = (
+            target_storage.get_setting(chat_id, "effort", config.DEFAULT_EFFORT)
+            or config.DEFAULT_EFFORT
+        )
+        mode = (
+            target_storage.get_setting(chat_id, "mode", config.DEFAULT_MODE)
+            or config.DEFAULT_MODE
+        )
 
-        conv_target = active_conversations.get(chat_id)
+        conv_target = target_storage.get_active_session(chat_id)
         is_new_conversation = not conv_target
 
         directives: list[str] = []
@@ -1039,7 +941,7 @@ def run_antigravity_stream(  # noqa: C901
                 bufsize=1,
                 start_new_session=True,
             )
-            active_processes[chat_id] = process
+            target_storage.register_process(chat_id, process)
 
             final_response = ""
             turn_usage = {}
@@ -1075,8 +977,7 @@ def run_antigravity_stream(  # noqa: C901
                         if event_type == "init":
                             conv_id = data.get("conversation_id")
                             if conv_id:
-                                active_conversations[chat_id] = conv_id
-                                save_persistent_sessions()
+                                target_storage.set_active_session(chat_id, conv_id)
 
                         elif event_type == "step_update":
                             step = data.get("step_update", {})
@@ -1171,13 +1072,12 @@ def run_antigravity_stream(  # noqa: C901
                     process.stdout.close()
                 with contextlib.suppress(Exception):
                     process.wait()
-                active_processes.pop(chat_id, None)
+                target_storage.unregister_process(chat_id)
 
-            if not active_conversations.get(chat_id):
-                active_conversations[chat_id] = True
-                save_persistent_sessions()
+            if not target_storage.get_active_session(chat_id):
+                target_storage.set_active_session(chat_id, True)
 
-            usage_stats = get_token_usage(chat_id)
+            usage_stats = target_storage.get_token_usage(chat_id)
             if turn_usage and turn_usage.get("total_tokens"):
                 t_tok = turn_usage["total_tokens"]
                 usage_stats["session_tokens"] += t_tok
@@ -1194,7 +1094,7 @@ def run_antigravity_stream(  # noqa: C901
             return resp_text, turn_usage, generated_files
 
         except Exception as e:
-            active_processes.pop(chat_id, None)
+            target_storage.unregister_process(chat_id)
             return f"❌ <b>Failed to run Antigravity:</b> {str(e)}", {}, []
 
 
@@ -1203,6 +1103,8 @@ def run_smash_stream(
     chat_id: int,
     workspace_dir: str | None = None,
     progress_callback: Callable[[str], None] | None = None,
+    *,
+    storage: SessionStorage,
 ) -> tuple[str, dict[str, Any], list[str]]:
     smash_prompt = (
         "💥 SMASH MODE INSTRUCTION: Complete the following task with "
@@ -1216,6 +1118,7 @@ def run_smash_stream(
         chat_id,
         workspace_dir,
         progress_callback,
+        storage=storage,
     )
 
 
@@ -1224,6 +1127,8 @@ def resume_stream(
     chat_id: int,
     workspace_dir: str | None = None,
     progress_callback: Callable[[str], None] | None = None,
+    *,
+    storage: SessionStorage,
 ) -> tuple[str, dict[str, Any], list[str]]:
     resume_prompt = (
         prompt
@@ -1235,19 +1140,22 @@ def resume_stream(
         chat_id,
         workspace_dir,
         progress_callback,
+        storage=storage,
     )
 
 
-def set_active_session(chat_id: int, conv_id: str) -> None:
-    active_conversations[chat_id] = conv_id
-    save_persistent_sessions()
-    if chat_id not in chat_token_usage:
-        chat_token_usage[chat_id] = {"session_tokens": 0, "total_tokens": 0}
-    chat_token_usage[chat_id]["session_tokens"] = calculate_session_tokens(conv_id)
+def set_active_session(
+    chat_id: int,
+    conv_id: str,
+    *,
+    storage: SessionStorage,
+) -> None:
+    storage.set_active_session(chat_id, conv_id)
 
 
-def reset_session(chat_id: int) -> None:
-    active_conversations.pop(chat_id, None)
-    save_persistent_sessions()
-    if chat_id in chat_token_usage:
-        chat_token_usage[chat_id]["session_tokens"] = 0
+def reset_session(
+    chat_id: int,
+    *,
+    storage: SessionStorage,
+) -> None:
+    storage.reset_session(chat_id)

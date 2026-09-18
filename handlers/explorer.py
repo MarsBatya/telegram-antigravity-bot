@@ -7,7 +7,6 @@ from aiogram import Bot, F, Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, FSInputFile, Message
 
-import agent_runner
 from bot_utils import format_file_size, path_mapper, reply_safe
 from callbacks import (
     BrowseDirCallback,
@@ -22,6 +21,7 @@ from keyboards import (
     get_tree_keyboard,
     get_workspace_keyboard,
 )
+from storage import SessionStorage
 
 router = Router(name="explorer")
 
@@ -29,7 +29,11 @@ TREE_PAGE_SIZE: int = 10
 
 
 @router.message(Command(commands=["workspace"]))
-async def change_workspace(message: Message, bot: Bot) -> None:
+async def change_workspace(
+    message: Message,
+    bot: Bot,
+    session_storage: SessionStorage,
+) -> None:
     text = message.text or ""
     args = text.split(maxsplit=1)
     if len(args) > 1 and text not in ["📂 Workspace & Tree"]:
@@ -37,7 +41,7 @@ async def change_workspace(message: Message, bot: Bot) -> None:
         if not os.path.exists(new_ws):
             os.makedirs(new_ws, exist_ok=True)
 
-        agent_runner.set_chat_workspace(message.chat.id, new_ws)
+        session_storage.set_workspace(message.chat.id, new_ws)
         await reply_safe(
             bot,
             message,
@@ -45,12 +49,16 @@ async def change_workspace(message: Message, bot: Bot) -> None:
             f"<code>{html.escape(new_ws)}</code>",
         )
     else:
-        await show_workspace_picker(message, bot)
+        await show_workspace_picker(message, bot, session_storage=session_storage)
 
 
-async def show_workspace_picker(message: Message, bot: Bot) -> None:
+async def show_workspace_picker(
+    message: Message,
+    bot: Bot,
+    session_storage: SessionStorage,
+) -> None:
     chat_id = message.chat.id
-    current_ws = agent_runner.get_chat_workspace(chat_id)
+    current_ws = session_storage.get_workspace(chat_id)
 
     base_dir = config.DEFAULT_WORKSPACE
     available_dirs = [base_dir]
@@ -75,6 +83,7 @@ async def show_workspace_picker(message: Message, bot: Bot) -> None:
 async def handle_set_ws_callback(
     callback: CallbackQuery,
     callback_data: WorkspaceCallback,
+    session_storage: SessionStorage,
 ) -> None:
     if callback.message is None:
         return
@@ -86,7 +95,7 @@ async def handle_set_ws_callback(
         return
 
     os.makedirs(new_ws, exist_ok=True)
-    agent_runner.set_chat_workspace(chat_id, new_ws)
+    session_storage.set_workspace(chat_id, new_ws)
 
     await callback.answer("Workspace synced to AI!")
     with contextlib.suppress(Exception):
@@ -101,26 +110,48 @@ async def handle_set_ws_callback(
 
 @router.message(Command(commands=["tree", "ls"]))
 @router.message(F.text == "📂 Workspace & Tree")
-async def show_tree_explorer(message: Message, bot: Bot) -> None:
-    current_ws = agent_runner.get_chat_workspace(message.chat.id)
-    await render_file_explorer_message(message, bot, current_ws)
+async def show_tree_explorer(
+    message: Message,
+    bot: Bot,
+    session_storage: SessionStorage,
+) -> None:
+    current_ws = session_storage.get_workspace(message.chat.id)
+    await render_file_explorer_message(
+        message,
+        bot,
+        current_ws,
+        session_storage=session_storage,
+    )
 
 
 @router.callback_query(NavigationCallback.filter(F.target == "tree_explorer"))
-async def handle_nav_tree(callback: CallbackQuery) -> None:
+async def handle_nav_tree(
+    callback: CallbackQuery,
+    session_storage: SessionStorage,
+) -> None:
     if callback.message is None:
         return
-    current_ws = agent_runner.get_chat_workspace(callback.message.chat.id)
-    await render_file_explorer_callback(callback, current_ws)
+    current_ws = session_storage.get_workspace(callback.message.chat.id)
+    await render_file_explorer_callback(
+        callback,
+        current_ws,
+        session_storage=session_storage,
+    )
 
 
 @router.callback_query(BrowseDirCallback.filter())
 async def handle_browse_dir_callback(
     callback: CallbackQuery,
     callback_data: BrowseDirCallback,
+    session_storage: SessionStorage,
 ) -> None:
     path_dir = path_mapper.decode(callback_data.token) or config.DEFAULT_WORKSPACE
-    await render_file_explorer_callback(callback, path_dir, page=callback_data.page)
+    await render_file_explorer_callback(
+        callback,
+        path_dir,
+        page=callback_data.page,
+        session_storage=session_storage,
+    )
 
 
 @router.callback_query(FileInfoCallback.filter())
@@ -276,12 +307,13 @@ async def handle_file_upload_callback(
 def _build_tree_data(
     chat_id: int,
     path_dir: str,
+    session_storage: SessionStorage,
 ) -> tuple[str, str, list[str], list[tuple[str, float]]]:
     norm_path = os.path.abspath(path_dir)
     if not os.path.exists(norm_path):
         norm_path = config.DEFAULT_WORKSPACE
 
-    cur_ws = agent_runner.get_chat_workspace(chat_id)
+    cur_ws = session_storage.get_workspace(chat_id)
     dirs: list[str] = []
     files: list[tuple[str, float]] = []
 
@@ -338,11 +370,14 @@ async def render_file_explorer_message(
     message: Message,
     bot: Bot,
     path_dir: str,
+    *,
+    session_storage: SessionStorage,
     page: int = 1,
 ) -> None:
     norm_path, cur_ws, all_dirs, all_files = _build_tree_data(
         message.chat.id,
         path_dir,
+        session_storage=session_storage,
     )
     page_dirs, page_files, page, total_pages, total_items = _paginate_tree_entries(
         all_dirs,
@@ -380,6 +415,8 @@ async def render_file_explorer_message(
 async def render_file_explorer_callback(
     callback: CallbackQuery,
     path_dir: str,
+    *,
+    session_storage: SessionStorage,
     page: int = 1,
 ) -> None:
     if callback.message is None:
@@ -387,6 +424,7 @@ async def render_file_explorer_callback(
     norm_path, cur_ws, all_dirs, all_files = _build_tree_data(
         callback.message.chat.id,
         path_dir,
+        session_storage=session_storage,
     )
     page_dirs, page_files, page, total_pages, total_items = _paginate_tree_entries(
         all_dirs,

@@ -2,6 +2,7 @@ import asyncio
 from collections.abc import Callable
 import contextlib
 import html
+import inspect
 import os
 import re
 import tempfile
@@ -24,13 +25,18 @@ from keyboards import (
     get_cancel_keyboard,
     get_main_reply_keyboard,
 )
+from storage import SessionStorage
 
 router = Router(name="agent")
 _active_background_tasks: set[asyncio.Task[Any]] = set()
 
 
 @router.message(Command(commands=["smash"]))
-async def execute_smash(message: Message, bot: Bot) -> None:
+async def execute_smash(
+    message: Message,
+    bot: Bot,
+    session_storage: SessionStorage,
+) -> None:
     text = message.text or ""
     args = text.split(maxsplit=1)
     if len(args) < 2:
@@ -55,11 +61,16 @@ async def execute_smash(message: Message, bot: Bot) -> None:
         status_text=status_text,
         runner_func=agent_runner.run_smash_mode,
         reply_to_message_id=message.message_id,
+        session_storage=session_storage,
     )
 
 
 @router.message(Command(commands=["goal"]))
-async def execute_goal(message: Message, bot: Bot) -> None:
+async def execute_goal(
+    message: Message,
+    bot: Bot,
+    session_storage: SessionStorage,
+) -> None:
     text = message.text or ""
     args = text.split(maxsplit=1)
     if len(args) < 2:
@@ -76,11 +87,20 @@ async def execute_goal(message: Message, bot: Bot) -> None:
         f"Goal: {args[1].strip()}. "
         f"Ensure this task is completed thoroughly and completely."
     )
-    await process_agent_prompt(bot, message, goal_prompt)
+    await process_agent_prompt(
+        bot,
+        message,
+        goal_prompt,
+        session_storage=session_storage,
+    )
 
 
 @router.message(Command(commands=["plan"]))
-async def execute_plan(message: Message, bot: Bot) -> None:
+async def execute_plan(
+    message: Message,
+    bot: Bot,
+    session_storage: SessionStorage,
+) -> None:
     text = message.text or ""
     args = text.split(maxsplit=1)
     if len(args) < 2:
@@ -93,15 +113,23 @@ async def execute_plan(message: Message, bot: Bot) -> None:
         return
 
     plan_prompt = f"Create a step-by-step plan for: {args[1].strip()}"
-    await process_agent_prompt(bot, message, plan_prompt)
+    await process_agent_prompt(
+        bot,
+        message,
+        plan_prompt,
+        session_storage=session_storage,
+    )
 
 
 @router.callback_query(NavigationCallback.filter(F.target == "cancel_execution"))
-async def handle_cancel_callback(callback: CallbackQuery) -> None:
+async def handle_cancel_callback(
+    callback: CallbackQuery,
+    session_storage: SessionStorage,
+) -> None:
     if callback.message is None:
         return
     chat_id = callback.message.chat.id
-    if agent_runner.cancel_chat_process(chat_id):
+    if agent_runner.cancel_chat_process(chat_id, storage=session_storage):
         await callback.answer("Process cancelled!")
         with contextlib.suppress(Exception):
             await callback.message.edit_text(
@@ -113,17 +141,25 @@ async def handle_cancel_callback(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(NavigationCallback.filter(F.target == "quota_info"))
-async def handle_quota_info_callback(callback: CallbackQuery, bot: Bot) -> None:
+async def handle_quota_info_callback(
+    callback: CallbackQuery,
+    bot: Bot,
+    session_storage: SessionStorage,
+) -> None:
     if callback.message is None:
         return
     await callback.answer()
     from handlers.commands import send_usage
 
-    await send_usage(callback.message, bot)
+    await send_usage(callback.message, bot, session_storage=session_storage)
 
 
 @router.message(F.photo | F.document)
-async def handle_media_prompt(message: Message, bot: Bot) -> None:
+async def handle_media_prompt(
+    message: Message,
+    bot: Bot,
+    session_storage: SessionStorage,
+) -> None:
     caption = (
         message.caption or "Analyze this file/photo and help fix any errors if present."
     )
@@ -150,21 +186,41 @@ async def handle_media_prompt(message: Message, bot: Bot) -> None:
             await bot.download_file(file_info.file_path, destination=saved_path)
 
             prompt = f"File uploaded at '{saved_path}'. Instructions: {caption}"
-            await process_agent_prompt(bot, message, prompt)
+            await process_agent_prompt(
+                bot,
+                message,
+                prompt,
+                session_storage=session_storage,
+            )
     except Exception as e:
         err_msg = f"❌ Failed to process file/photo: {html.escape(str(e))}"
         await reply_safe(bot, message, err_msg)
 
 
 @router.message(F.text)
-async def handle_text_prompt(message: Message, bot: Bot) -> None:
+async def handle_text_prompt(
+    message: Message,
+    bot: Bot,
+    session_storage: SessionStorage,
+) -> None:
     prompt = (message.text or "").strip()
     if not prompt:
         return
-    await process_agent_prompt(bot, message, prompt)
+    await process_agent_prompt(
+        bot,
+        message,
+        prompt,
+        session_storage=session_storage,
+    )
 
 
-async def process_agent_prompt(bot: Bot, message: Message, prompt: str) -> None:
+async def process_agent_prompt(
+    bot: Bot,
+    message: Message,
+    prompt: str,
+    *,
+    session_storage: SessionStorage,
+) -> None:
     status_text = "🧠 <b>Thinking...</b> <i>(0s)</i>"
     await process_custom_agent_prompt(
         bot=bot,
@@ -173,6 +229,7 @@ async def process_agent_prompt(bot: Bot, message: Message, prompt: str) -> None:
         status_text=status_text,
         runner_func=agent_runner.run_antigravity_agent,
         reply_to_message_id=message.message_id,
+        session_storage=session_storage,
     )
 
 
@@ -209,6 +266,8 @@ async def process_custom_agent_prompt(  # noqa: C901
     prompt: str,
     status_text: str,
     runner_func: Callable[..., tuple[str, dict[str, Any], list[str]]],
+    *,
+    session_storage: SessionStorage,
     reply_to_message_id: int | None = None,
 ) -> None:
     cancel_markup = get_cancel_keyboard()
@@ -224,13 +283,14 @@ async def process_custom_agent_prompt(  # noqa: C901
     except Exception as e:
         print(f"[WARNING] Could not send initial status message: {e}")
 
-    user_ws = agent_runner.get_chat_workspace(chat_id)
-    cur_model = agent_runner.get_chat_setting(
+    storage = session_storage
+    user_ws = storage.get_workspace(chat_id)
+    cur_model = storage.get_setting(
         chat_id,
         "model",
         config.DEFAULT_MODEL,
     )
-    cur_effort = agent_runner.get_chat_setting(
+    cur_effort = storage.get_setting(
         chat_id,
         "effort",
         config.DEFAULT_EFFORT,
@@ -300,12 +360,22 @@ async def process_custom_agent_prompt(  # noqa: C901
 
         try:
             async with ChatActionSender.typing(chat_id=chat_id, bot=bot, interval=4.0):
+                sig = inspect.signature(runner_func)
+                call_kwargs: dict[str, Any] = {
+                    "progress_callback": sync_progress_callback,
+                }
+                if "storage" in sig.parameters or any(
+                    p.kind == inspect.Parameter.VAR_KEYWORD
+                    for p in sig.parameters.values()
+                ):
+                    call_kwargs["storage"] = storage
+
                 response, turn_usage, generated_files = await asyncio.to_thread(
                     runner_func,
                     prompt,
                     chat_id,
                     user_ws,
-                    progress_callback=sync_progress_callback,
+                    **call_kwargs,
                 )
 
             is_finished = True

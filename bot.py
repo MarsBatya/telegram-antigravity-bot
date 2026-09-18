@@ -2,7 +2,7 @@ import asyncio
 import sys
 from typing import Any
 
-from aiogram import Bot, Dispatcher
+from aiogram import Bot, Dispatcher, Router
 from aiogram.client.default import DefaultBotProperties
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.enums import ParseMode
@@ -79,8 +79,8 @@ from handlers.settings import (
     show_model_picker,
 )
 from middlewares import AuthMiddleware
+from storage import SessionStorage
 import stream_runner
-from stream_runner import cleanup_all_active_processes
 
 _bot_token = (
     config.BOT_TOKEN
@@ -114,33 +114,54 @@ def create_bot(
 
 
 bot = create_bot()
-
+storage = SessionStorage()
 dp = Dispatcher()
 
 
-def setup_dispatcher(target_dp: Dispatcher) -> None:
-    # Outer middleware for global authentication
-    target_dp.message.outer_middleware(AuthMiddleware())
-    target_dp.callback_query.outer_middleware(AuthMiddleware())
+def setup_dispatcher(
+    target_dp: Dispatcher,
+    storage: SessionStorage | None = None,
+) -> None:
+    if not target_dp.sub_routers:
+        # Outer middleware for global authentication
+        target_dp.message.outer_middleware(AuthMiddleware())
+        target_dp.callback_query.outer_middleware(AuthMiddleware())
 
-    # Auto callback answer middleware
-    target_dp.callback_query.middleware(CallbackAnswerMiddleware())
+        # Auto callback answer middleware
+        target_dp.callback_query.middleware(CallbackAnswerMiddleware())
 
-    # Register modular routers
-    target_dp.include_router(commands_router)
-    target_dp.include_router(settings_router)
-    target_dp.include_router(explorer_router)
-    target_dp.include_router(sessions_router)
-    target_dp.include_router(agent_router)
+        # Register modular routers
+        target_dp.include_router(commands_router)
+        target_dp.include_router(settings_router)
+        target_dp.include_router(explorer_router)
+        target_dp.include_router(sessions_router)
+        target_dp.include_router(agent_router)
+
+    if storage is not None:
+        target_dp["session_storage"] = storage
 
 
-setup_dispatcher(dp)
+setup_dispatcher(dp, storage=storage)
 
 
-async def on_shutdown(*args: Any, **kwargs: Any) -> None:
+async def on_shutdown(
+    *args: Any,
+    router: Router | None = None,
+    bot: Bot | None = None,
+    session_storage: SessionStorage | None = None,
+    **kwargs: Any,
+) -> None:
     print("🛑 Shutting down bot, terminating active CLI processes...")
-    stream_runner.cleanup_all_active_processes()
-    await bot.session.close()
+    target_storage = (
+        session_storage
+        or (router.get("session_storage") if router is not None else None)
+        or dp.get("session_storage")
+    )
+    if isinstance(target_storage, SessionStorage):
+        stream_runner.cleanup_all_active_processes(target_storage)
+    target_bot = bot or globals().get("bot")
+    if target_bot is not None and getattr(target_bot, "session", None) is not None:
+        await target_bot.session.close()
 
 
 dp.shutdown.register(on_shutdown)
@@ -150,6 +171,9 @@ async def main() -> None:
     if not config.validate_config():
         print("[ERROR] Please configure .env before starting the bot.")
         sys.exit(1)
+
+    storage = SessionStorage()
+    setup_dispatcher(dp, storage=storage)
 
     await register_telegram_commands(bot)
 
@@ -168,7 +192,11 @@ async def main() -> None:
         print(f"⚠️ Remove webhook notice: {e}")
 
     print("🤖 Bot is active & polling for messages...")
-    await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+    await dp.start_polling(
+        bot,
+        allowed_updates=dp.resolve_used_update_types(),
+        session_storage=storage,
+    )
 
 
 __all__ = [
@@ -176,7 +204,6 @@ __all__ = [
     "agent_runner",
     "bot",
     "change_workspace",
-    "cleanup_all_active_processes",
     "create_bot",
     "create_bot_session",
     "delete_session_command",
@@ -231,6 +258,7 @@ __all__ = [
     "show_tree_explorer",
     "show_workspace_picker",
     "stream_runner",
+    "SessionStorage",
 ]
 
 if __name__ == "__main__":

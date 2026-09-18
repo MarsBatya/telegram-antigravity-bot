@@ -24,6 +24,7 @@
 - `keyboards.py`: Interactive reply keyboard and inline keyboard builders.
 - `middlewares.py`: Global authentication middleware (`AuthMiddleware`) verifying `ALLOWED_USER_IDS`.
 - `bot_utils.py`: `PathMapper` for path encoding, progress bar formatting, command menu registration, and safe message chunking.
+- `storage.py`: Thread-safe, file-backed session, workspace, setting, and process storage (`SessionStorage`), injected into handlers via aiogram v3 dependency injection.
 - `stream_runner.py`: Subprocess runner for `agy` CLI streaming execution, stdout JSON event parser, session persistence, lock management, and live quota checking.
 - `agent_runner.py`: Public facade exporting stream runner utilities for execution and session management.
 - `formatter.py`: Converts agent markdown output into Telegram HTML (`<pre><code>`, `<b>`, `<i>`, `<blockquote expandable>`).

@@ -1,5 +1,5 @@
+from storage import SessionStorage
 from stream_runner import (
-    active_conversations,
     cancel_chat_process,
     cleanup_all_active_processes,
     delete_session,
@@ -27,7 +27,7 @@ from stream_runner import (
 )
 
 __all__ = [
-    "active_conversations",
+    "SessionStorage",
     "cancel_chat_process",
     "cleanup_all_active_processes",
     "delete_session",

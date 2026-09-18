@@ -10,6 +10,7 @@ from bot_utils import reply_safe
 from callbacks import EffortCallback, ModeCallback, ModelCallback, NavigationCallback
 import config
 from keyboards import get_effort_keyboard, get_mode_keyboard, get_model_keyboard
+from storage import SessionStorage
 
 router = Router(name="settings")
 
@@ -36,9 +37,13 @@ def _get_models_list() -> list[dict[str, Any]]:
 
 @router.message(Command(commands=["model"]))
 @router.message(F.text == "🤖 Model & Effort")
-async def show_model_picker(message: Message, bot: Bot) -> None:
+async def show_model_picker(
+    message: Message,
+    bot: Bot,
+    session_storage: SessionStorage,
+) -> None:
     chat_id = message.chat.id
-    cur_model = agent_runner.get_chat_setting(chat_id, "model", config.DEFAULT_MODEL)
+    cur_model = session_storage.get_setting(chat_id, "model", config.DEFAULT_MODEL)
     models = _get_models_list()
     markup = get_model_keyboard(cur_model, models)
 
@@ -51,11 +56,14 @@ async def show_model_picker(message: Message, bot: Bot) -> None:
 
 
 @router.callback_query(NavigationCallback.filter(F.target == "effort_menu"))
-async def handle_open_effort_menu(callback: CallbackQuery) -> None:
+async def handle_open_effort_menu(
+    callback: CallbackQuery,
+    session_storage: SessionStorage,
+) -> None:
     if callback.message is None:
         return
     chat_id = callback.message.chat.id
-    cur_effort = agent_runner.get_chat_setting(chat_id, "effort", config.DEFAULT_EFFORT)
+    cur_effort = session_storage.get_setting(chat_id, "effort", config.DEFAULT_EFFORT)
     markup = get_effort_keyboard(cur_effort)
     text = (
         "🎯 <b>Antigravity Reasoning Effort Level</b>\n\n"
@@ -70,12 +78,13 @@ async def handle_open_effort_menu(callback: CallbackQuery) -> None:
 async def handle_set_model_callback(
     callback: CallbackQuery,
     callback_data: ModelCallback,
+    session_storage: SessionStorage,
 ) -> None:
     if callback.message is None:
         return
     chat_id = callback.message.chat.id
     m_id = callback_data.model_id
-    agent_runner.set_chat_setting(chat_id, "model", m_id)
+    session_storage.set_setting(chat_id, "model", m_id)
 
     with contextlib.suppress(Exception):
         await callback.message.edit_text(
@@ -86,9 +95,13 @@ async def handle_set_model_callback(
 
 
 @router.message(Command(commands=["effort"]))
-async def show_effort_picker(message: Message, bot: Bot) -> None:
+async def show_effort_picker(
+    message: Message,
+    bot: Bot,
+    session_storage: SessionStorage,
+) -> None:
     chat_id = message.chat.id
-    cur_effort = agent_runner.get_chat_setting(chat_id, "effort", config.DEFAULT_EFFORT)
+    cur_effort = session_storage.get_setting(chat_id, "effort", config.DEFAULT_EFFORT)
     markup = get_effort_keyboard(cur_effort)
     text = (
         "🎯 <b>Antigravity Reasoning Effort Level</b>\n\n"
@@ -102,12 +115,13 @@ async def show_effort_picker(message: Message, bot: Bot) -> None:
 async def handle_set_effort_callback(
     callback: CallbackQuery,
     callback_data: EffortCallback,
+    session_storage: SessionStorage,
 ) -> None:
     if callback.message is None:
         return
     chat_id = callback.message.chat.id
     eff_key = callback_data.level
-    agent_runner.set_chat_setting(chat_id, "effort", eff_key)
+    session_storage.set_setting(chat_id, "effort", eff_key)
 
     with contextlib.suppress(Exception):
         await callback.message.edit_text(
@@ -118,9 +132,13 @@ async def handle_set_effort_callback(
 
 
 @router.message(Command(commands=["mode"]))
-async def show_mode_picker(message: Message, bot: Bot) -> None:
+async def show_mode_picker(
+    message: Message,
+    bot: Bot,
+    session_storage: SessionStorage,
+) -> None:
     chat_id = message.chat.id
-    cur_mode = agent_runner.get_chat_setting(chat_id, "mode", config.DEFAULT_MODE)
+    cur_mode = session_storage.get_setting(chat_id, "mode", config.DEFAULT_MODE)
     markup = get_mode_keyboard(cur_mode)
     text = (
         "⚙️ <b>Antigravity Agent Execution Mode</b>\n\n"
@@ -134,12 +152,13 @@ async def show_mode_picker(message: Message, bot: Bot) -> None:
 async def handle_set_mode_callback(
     callback: CallbackQuery,
     callback_data: ModeCallback,
+    session_storage: SessionStorage,
 ) -> None:
     if callback.message is None:
         return
     chat_id = callback.message.chat.id
     mode_key = callback_data.mode
-    agent_runner.set_chat_setting(chat_id, "mode", mode_key)
+    session_storage.set_setting(chat_id, "mode", mode_key)
 
     with contextlib.suppress(Exception):
         await callback.message.edit_text(

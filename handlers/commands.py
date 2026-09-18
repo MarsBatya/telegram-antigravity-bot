@@ -9,27 +9,31 @@ import agent_runner
 import config
 from bot_utils import make_progress_bar, mask_proxy_url, reply_safe, send_long_message
 from keyboards import get_main_reply_keyboard
-import stream_runner
+from storage import SessionStorage
 
 router = Router(name="commands")
 
 
 @router.message(Command(commands=["start", "help"]))
 @router.message(F.text == "❓ Help")
-async def send_welcome(message: Message, bot: Bot) -> None:
+async def send_welcome(
+    message: Message,
+    bot: Bot,
+    session_storage: SessionStorage,
+) -> None:
     chat_id = message.chat.id
-    user_ws = agent_runner.get_chat_workspace(chat_id)
-    cur_model = agent_runner.get_chat_setting(
+    user_ws = session_storage.get_workspace(chat_id)
+    cur_model = session_storage.get_setting(
         chat_id,
         "model",
         config.DEFAULT_MODEL,
     )
-    cur_effort = agent_runner.get_chat_setting(
+    cur_effort = session_storage.get_setting(
         chat_id,
         "effort",
         config.DEFAULT_EFFORT,
     )
-    cur_mode = agent_runner.get_chat_setting(
+    cur_mode = session_storage.get_setting(
         chat_id,
         "mode",
         config.DEFAULT_MODE,
@@ -78,8 +82,12 @@ async def show_bot_logs(message: Message, bot: Bot) -> None:
 
 
 @router.message(Command(commands=["stop", "cancel"]))
-async def handle_cancel_command(message: Message, bot: Bot) -> None:
-    if agent_runner.cancel_chat_process(message.chat.id):
+async def handle_cancel_command(
+    message: Message,
+    bot: Bot,
+    session_storage: SessionStorage,
+) -> None:
+    if agent_runner.cancel_chat_process(message.chat.id, storage=session_storage):
         await reply_safe(
             bot,
             message,
@@ -94,20 +102,24 @@ async def handle_cancel_command(message: Message, bot: Bot) -> None:
 
 
 @router.message(Command(commands=["status"]))
-async def send_status(message: Message, bot: Bot) -> None:
+async def send_status(
+    message: Message,
+    bot: Bot,
+    session_storage: SessionStorage,
+) -> None:
     chat_id = message.chat.id
     try:
         cpu_pct = psutil.cpu_percent(interval=0.8)
         ram = psutil.virtual_memory()
         disk = psutil.disk_usage("/")
-        usage = stream_runner.get_token_usage(chat_id)
-        user_ws = agent_runner.get_chat_workspace(chat_id)
-        cur_model = agent_runner.get_chat_setting(
+        usage = session_storage.get_token_usage(chat_id)
+        user_ws = session_storage.get_workspace(chat_id)
+        cur_model = session_storage.get_setting(
             chat_id,
             "model",
             config.DEFAULT_MODEL,
         )
-        cur_effort = agent_runner.get_chat_setting(
+        cur_effort = session_storage.get_setting(
             chat_id,
             "effort",
             config.DEFAULT_EFFORT,
@@ -156,11 +168,15 @@ async def send_status(message: Message, bot: Bot) -> None:
 
 @router.message(Command(commands=["usage"]))
 @router.message(F.text == "📊 Status & Usage")
-async def send_usage(message: Message, bot: Bot) -> None:
+async def send_usage(
+    message: Message,
+    bot: Bot,
+    session_storage: SessionStorage,
+) -> None:
     chat_id = message.chat.id
     live_quota_card = agent_runner.fetch_live_user_quota_summary()
 
-    usage = stream_runner.get_token_usage(chat_id)
+    usage = session_storage.get_token_usage(chat_id)
     sess_tok = usage["session_tokens"]
     tot_tok = usage["total_tokens"]
 

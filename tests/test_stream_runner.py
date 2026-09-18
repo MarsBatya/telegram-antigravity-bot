@@ -1,15 +1,17 @@
 import base64
+from datetime import datetime, timedelta, timezone
 import json
 import os
+from pathlib import Path
 import time
-from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
 import config
+from storage import SessionStorage
 import stream_runner
 
 
-def test_ascii_bar():
+def test_ascii_bar() -> None:
     # 0%
     bar0 = stream_runner.make_ascii_bar(0, 10)
     assert bar0 == "░" * 10
@@ -27,7 +29,7 @@ def test_ascii_bar():
     assert stream_runner.make_ascii_bar(150, 10) == "█" * 10
 
 
-def test_parse_reset_time():
+def test_parse_reset_time() -> None:
     assert stream_runner.parse_reset_time("") == ""
     assert stream_runner.parse_reset_time(None) == ""
     assert stream_runner.parse_reset_time("not-a-date") == ""
@@ -52,74 +54,85 @@ def test_parse_reset_time():
     assert "Refreshes in 2d" in res_d
 
 
-def test_session_persistence(tmp_path):
+def test_session_persistence(tmp_path: Path) -> None:
     session_file = str(tmp_path / "sessions.json")
+    storage = SessionStorage(file_path=session_file)
 
     # Initial load on missing file
-    stream_runner.load_persistent_sessions(session_file)
-    assert stream_runner.active_conversations == {}
+    stream_runner.load_persistent_sessions(storage, session_file)
+    assert storage.active_conversations == {}
 
     # Set data and save
-    stream_runner.active_conversations = {123: "conv-abc"}
-    stream_runner.active_workspaces = {123: "/path/to/ws"}
-    stream_runner.active_settings = {
-        123: {"model": "m1", "effort": "low", "mode": "plan"},
-    }
-    stream_runner.save_persistent_sessions(session_file)
+    storage.set_active_session(123, "conv-abc")
+    storage.set_workspace(123, "/path/to/ws")
+    storage.set_setting(123, "model", "m1")
+    storage.set_setting(123, "effort", "low")
+    storage.set_setting(123, "mode", "plan")
+    stream_runner.save_persistent_sessions(storage, session_file)
 
     # Reload from file
-    stream_runner.active_conversations = {}
-    stream_runner.active_workspaces = {}
-    stream_runner.active_settings = {}
-    stream_runner.load_persistent_sessions(session_file)
+    new_storage = SessionStorage(file_path=session_file)
+    stream_runner.load_persistent_sessions(new_storage, session_file)
 
-    assert stream_runner.active_conversations.get(123) == "conv-abc"
-    assert stream_runner.active_workspaces.get(123) == "/path/to/ws"
-    assert stream_runner.active_settings.get(123)["model"] == "m1"
+    assert new_storage.get_active_session(123) == "conv-abc"
+    assert new_storage.get_workspace(123) == "/path/to/ws"
+    assert new_storage.get_setting(123, "model") == "m1"
 
 
-def test_session_persistence_legacy_format(tmp_path):
+def test_session_persistence_legacy_format(tmp_path: Path) -> None:
     session_file = str(tmp_path / "legacy_sessions.json")
     with open(session_file, "w", encoding="utf-8") as f:
         json.dump({"456": "conv-legacy"}, f)
 
-    stream_runner.load_persistent_sessions(session_file)
-    assert stream_runner.active_conversations.get(456) == "conv-legacy"
+    storage = SessionStorage(file_path=session_file)
+    stream_runner.load_persistent_sessions(storage, session_file)
+    assert storage.get_active_session(456) == "conv-legacy"
 
 
-def test_chat_settings_and_workspace(tmp_path):
-    session_file = str(tmp_path / "sessions.json")
-    with patch.object(config, "SESSION_FILE", session_file):
-        # Default setting
-        chat_id = 9999
-        assert stream_runner.get_chat_setting(chat_id, "model") == config.DEFAULT_MODEL
-        assert (
-            stream_runner.get_chat_setting(chat_id, "effort") == config.DEFAULT_EFFORT
-        )
-        assert stream_runner.get_chat_setting(chat_id, "mode") == config.DEFAULT_MODE
+def test_chat_settings_and_workspace(tmp_path: Path, storage: SessionStorage) -> None:
+    chat_id = 9999
+    assert (
+        stream_runner.get_chat_setting(chat_id, "model", storage=storage)
+        == config.DEFAULT_MODEL
+    )
+    assert (
+        stream_runner.get_chat_setting(chat_id, "effort", storage=storage)
+        == config.DEFAULT_EFFORT
+    )
+    assert (
+        stream_runner.get_chat_setting(chat_id, "mode", storage=storage)
+        == config.DEFAULT_MODE
+    )
 
-        # Set setting
-        stream_runner.set_chat_setting(chat_id, "model", "custom-model")
-        assert stream_runner.get_chat_setting(chat_id, "model") == "custom-model"
+    stream_runner.set_chat_setting(chat_id, "model", "custom-model", storage=storage)
+    assert (
+        stream_runner.get_chat_setting(chat_id, "model", storage=storage)
+        == "custom-model"
+    )
 
-        # Workspace
-        assert stream_runner.get_chat_workspace(chat_id) == config.DEFAULT_WORKSPACE
-        test_ws = str(tmp_path / "test-ws")
-        stream_runner.set_chat_workspace(chat_id, test_ws)
-        assert stream_runner.get_chat_workspace(chat_id) == os.path.abspath(
-            test_ws,
-        )
+    assert (
+        stream_runner.get_chat_workspace(chat_id, storage=storage)
+        == config.DEFAULT_WORKSPACE
+    )
+    test_ws = str(tmp_path / "test-ws")
+    stream_runner.set_chat_workspace(chat_id, test_ws, storage=storage)
+    assert stream_runner.get_chat_workspace(
+        chat_id,
+        storage=storage,
+    ) == os.path.abspath(
+        test_ws,
+    )
 
 
-def test_chat_lock():
-    lock1 = stream_runner.get_chat_lock(101)
-    lock2 = stream_runner.get_chat_lock(101)
-    lock3 = stream_runner.get_chat_lock(102)
+def test_chat_lock(storage: SessionStorage) -> None:
+    lock1 = stream_runner.get_chat_lock(101, storage=storage)
+    lock2 = stream_runner.get_chat_lock(101, storage=storage)
+    lock3 = stream_runner.get_chat_lock(102, storage=storage)
     assert lock1 is lock2
     assert lock1 is not lock3
 
 
-def test_calculate_session_tokens(tmp_path):
+def test_calculate_session_tokens(tmp_path: Path) -> None:
     brain_dir = str(tmp_path / "brain")
     conv_id = "test-conv-123"
     log_dir = tmp_path / "brain" / conv_id / ".system_generated" / "logs"
@@ -149,7 +162,7 @@ def test_calculate_session_tokens(tmp_path):
     )
 
 
-def test_get_recent_sessions(tmp_path):
+def test_get_recent_sessions(tmp_path: Path) -> None:
     brain_dir = str(tmp_path / "brain")
 
     # Non-existent brain dir
@@ -196,7 +209,7 @@ def test_get_recent_sessions(tmp_path):
     assert any("Fix database connection pool bug" in t for t in titles)
 
 
-def test_rename_and_delete_session(tmp_path):
+def test_rename_and_delete_session(tmp_path: Path) -> None:
     brain_dir = str(tmp_path / "brain")
     conv_id = "conv-rename"
     log_dir = tmp_path / "brain" / conv_id / ".system_generated" / "logs"
@@ -236,7 +249,7 @@ def test_rename_and_delete_session(tmp_path):
     assert stream_runner.delete_session("missing", brain_dir=brain_dir) is False
 
 
-def test_get_full_session_history_formatted(tmp_path):
+def test_get_full_session_history_formatted(tmp_path: Path) -> None:
     brain_dir = str(tmp_path / "brain")
     conv_id = "conv-history"
     log_dir = tmp_path / "brain" / conv_id / ".system_generated" / "logs"
@@ -282,25 +295,23 @@ def test_get_full_session_history_formatted(tmp_path):
     assert short_history[0]["user"] == "How do I test?"
 
 
-def test_active_session_and_reset(tmp_path):
-    session_file = str(tmp_path / "sessions.json")
-    with patch.object(config, "SESSION_FILE", session_file):
-        stream_runner.set_active_session(777, "session-777")
-        assert stream_runner.active_conversations[777] == "session-777"
+def test_active_session_and_reset(storage: SessionStorage) -> None:
+    stream_runner.set_active_session(777, "session-777", storage=storage)
+    assert storage.get_active_session(777) == "session-777"
 
-        stream_runner.reset_session(777)
-        assert 777 not in stream_runner.active_conversations
+    stream_runner.reset_session(777, storage=storage)
+    assert storage.get_active_session(777) is None
 
 
-def test_cancel_chat_process():
+def test_cancel_chat_process(storage: SessionStorage) -> None:
     # No process
-    assert stream_runner.cancel_chat_process(99999) is False
+    assert stream_runner.cancel_chat_process(99999, storage=storage) is False
 
     # Mock process already finished
     mock_proc = MagicMock()
     mock_proc.poll.return_value = 0
-    stream_runner.active_processes[111] = mock_proc
-    assert stream_runner.cancel_chat_process(111) is False
+    storage.register_process(111, mock_proc)
+    assert stream_runner.cancel_chat_process(111, storage=storage) is False
 
     # Mock process running
     mock_proc_running = MagicMock()
@@ -308,12 +319,12 @@ def test_cancel_chat_process():
         None,
         0,
     ]  # First poll running, second terminated
-    stream_runner.active_processes[222] = mock_proc_running
-    assert stream_runner.cancel_chat_process(222) is True
+    storage.register_process(222, mock_proc_running)
+    assert stream_runner.cancel_chat_process(222, storage=storage) is True
     mock_proc_running.terminate.assert_called_once()
 
 
-def test_fetch_bot_logs():
+def test_fetch_bot_logs() -> None:
     with patch("subprocess.run") as mock_run:
         # Success with logs
         mock_run.return_value = MagicMock(stdout="systemd[1]: Started antigravity-bot.")
@@ -331,7 +342,7 @@ def test_fetch_bot_logs():
         assert "Failed to fetch logs" in logs_err
 
 
-def test_fetch_available_models_live(tmp_path):
+def test_fetch_available_models_live(tmp_path: Path) -> None:
     token_file = str(tmp_path / "oauth-token.json")
 
     # Missing file
@@ -369,7 +380,7 @@ def test_fetch_available_models_live(tmp_path):
         assert models[1]["id"] == "model-b"
 
 
-def test_fetch_live_user_quota_summary(tmp_path):
+def test_fetch_live_user_quota_summary(tmp_path: Path) -> None:
     token_file = str(tmp_path / "oauth-token.json")
 
     # Missing file
@@ -433,15 +444,22 @@ def test_fetch_live_user_quota_summary(tmp_path):
         assert "[Disabled]" in quota_summary
 
 
-def test_run_antigravity_stream_missing_binary():
+def test_run_antigravity_stream_missing_binary(storage: SessionStorage) -> None:
     with patch.object(config, "AGY_PATH", "/non/existent/path/to/agy"):
-        resp, usage, files = stream_runner.run_antigravity_stream("test prompt", 1234)
+        resp, usage, files = stream_runner.run_antigravity_stream(
+            "test prompt",
+            1234,
+            storage=storage,
+        )
         assert "agy executable not found" in resp
         assert usage == {}
         assert files == []
 
 
-def test_run_antigravity_stream_streaming_events(tmp_path):
+def test_run_antigravity_stream_streaming_events(
+    tmp_path: Path,
+    storage: SessionStorage,
+) -> None:
     agy_mock = str(tmp_path / "agy")
     with open(agy_mock, "w") as f:
         f.write("#!/bin/sh\nexit 0\n")
@@ -493,7 +511,7 @@ def test_run_antigravity_stream_streaming_events(tmp_path):
 
     progress_messages = []
 
-    def on_progress(text):
+    def on_progress(text: str) -> None:
         progress_messages.append(text)
 
     with patch.object(config, "AGY_PATH", agy_mock):
@@ -504,33 +522,36 @@ def test_run_antigravity_stream_streaming_events(tmp_path):
                     9988,
                     workspace_dir=str(tmp_path),
                     progress_callback=on_progress,
+                    storage=storage,
                 )
 
                 assert resp == "Hello from Antigravity!"
                 assert usage.get("total_tokens") == 120
-                assert stream_runner.active_conversations[9988] == "conv-stream-100"
+                assert storage.get_active_session(9988) == "conv-stream-100"
 
 
-def test_run_smash_and_resume_stream():
+def test_run_smash_and_resume_stream(storage: SessionStorage) -> None:
     with patch.object(stream_runner, "run_antigravity_stream") as mock_run:
         mock_run.return_value = ("Success", {}, [])
 
         # Smash stream
-        stream_runner.run_smash_stream("Fix everything", 555)
+        stream_runner.run_smash_stream("Fix everything", 555, storage=storage)
         mock_run.assert_called_once()
         prompt_arg = mock_run.call_args[0][0]
         assert "SMASH MODE INSTRUCTION" in prompt_arg
         assert "Fix everything" in prompt_arg
+        assert mock_run.call_args[1].get("storage") is storage
 
         mock_run.reset_mock()
 
         # Resume stream
-        stream_runner.resume_stream("Keep going", 555)
+        stream_runner.resume_stream("Keep going", 555, storage=storage)
         mock_run.assert_called_once()
         assert mock_run.call_args[0][0] == "Keep going"
+        assert mock_run.call_args[1].get("storage") is storage
 
 
-def test_rename_session_with_metadata_header(tmp_path):
+def test_rename_session_with_metadata_header(tmp_path: Path) -> None:
     brain_dir = str(tmp_path / "brain")
     conv_id = "conv-meta-rename"
     log_dir = tmp_path / "brain" / conv_id / ".system_generated" / "logs"
@@ -567,26 +588,26 @@ def test_rename_session_with_metadata_header(tmp_path):
         assert "Renamed Goal" in lines[1]
 
 
-def test_cancel_chat_process_kills_process_group():
+def test_cancel_chat_process_kills_process_group(storage: SessionStorage) -> None:
     mock_proc = MagicMock()
     mock_proc.pid = 4321
     mock_proc.poll.side_effect = [None, None, 0]
 
-    stream_runner.active_processes[333] = mock_proc
+    storage.register_process(333, mock_proc)
 
     with (
         patch("os.getpgid", return_value=4321) as mock_getpgid,
         patch("os.killpg") as mock_killpg,
     ):
-        assert stream_runner.cancel_chat_process(333) is True
+        assert stream_runner.cancel_chat_process(333, storage=storage) is True
         mock_getpgid.assert_called_with(4321)
         assert mock_killpg.call_count >= 1
         mock_proc.terminate.assert_called_once()
         mock_proc.kill.assert_called_once()
-        assert 333 not in stream_runner.active_processes
+        assert storage.get_process(333) is None
 
 
-def test_cleanup_all_active_processes():
+def test_cleanup_all_active_processes(storage: SessionStorage) -> None:
     proc1 = MagicMock()
     proc1.pid = 1001
     proc1.poll.return_value = None
@@ -595,17 +616,20 @@ def test_cleanup_all_active_processes():
     proc2.pid = 1002
     proc2.poll.return_value = 0  # already stopped
 
-    stream_runner.active_processes[1] = proc1
-    stream_runner.active_processes[2] = proc2
+    storage.register_process(1, proc1)
+    storage.register_process(2, proc2)
 
     with patch("os.getpgid", return_value=1001), patch("os.killpg"):
-        stream_runner.cleanup_all_active_processes()
+        stream_runner.cleanup_all_active_processes(storage=storage)
         proc1.terminate.assert_called_once()
         proc2.terminate.assert_not_called()
-        assert len(stream_runner.active_processes) == 0
+        assert len(storage.active_processes) == 0
 
 
-def test_run_antigravity_stream_registers_active_process(tmp_path):
+def test_run_antigravity_stream_registers_active_process(
+    tmp_path: Path,
+    storage: SessionStorage,
+) -> None:
     agy_mock = str(tmp_path / "agy")
     with open(agy_mock, "w") as f:
         f.write("#!/bin/sh\nexit 0\n")
@@ -618,7 +642,7 @@ def test_run_antigravity_stream_registers_active_process(tmp_path):
 
     def fake_readline():
         nonlocal registered_during_run
-        if 7788 in stream_runner.active_processes:
+        if storage.get_process(7788) is not None:
             registered_during_run = True
         return ""
 
@@ -631,37 +655,35 @@ def test_run_antigravity_stream_registers_active_process(tmp_path):
                 "Test",
                 7788,
                 workspace_dir=str(tmp_path),
+                storage=storage,
             )
 
     assert registered_during_run is True
-    assert 7788 not in stream_runner.active_processes
+    assert storage.get_process(7788) is None
 
 
-def test_atomic_session_persistence_concurrent(tmp_path):
+def test_atomic_session_persistence_concurrent(tmp_path: Path) -> None:
     import concurrent.futures
+    from storage import SessionStorage
 
     session_file = str(tmp_path / "concurrent_sessions.json")
-    stream_runner.active_conversations.clear()
-    stream_runner.active_workspaces.clear()
-    stream_runner.active_settings.clear()
+    storage = SessionStorage(file_path=session_file)
 
     def worker(idx: int) -> None:
-        stream_runner.active_conversations[idx] = f"conv-{idx}"
-        stream_runner.save_persistent_sessions(session_file)
+        storage.set_active_session(idx, f"conv-{idx}")
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
         futures = [executor.submit(worker, i) for i in range(10)]
         for f in concurrent.futures.as_completed(futures):
             f.result()
 
-    stream_runner.active_conversations.clear()
-    stream_runner.load_persistent_sessions(session_file)
-    assert len(stream_runner.active_conversations) == 10
+    new_storage = SessionStorage(file_path=session_file)
+    assert len(new_storage.active_conversations) == 10
     for i in range(10):
-        assert stream_runner.active_conversations[i] == f"conv-{i}"
+        assert new_storage.get_active_session(i) == f"conv-{i}"
 
 
-def test_format_tool_step_description():
+def test_format_tool_step_description() -> None:
     # run_command active
     cmd_act = stream_runner.format_tool_step_description(
         "run_command",
@@ -758,7 +780,7 @@ def test_format_tool_step_description():
     assert "(2.50s)" in fb_done
 
 
-def test_format_progress_card():
+def test_format_progress_card() -> None:
     # 1. Initial thinking without steps
     card_thk = stream_runner.format_progress_card(
         elapsed_seconds=3,
@@ -831,7 +853,7 @@ def test_format_progress_card():
     assert len(card_giant) <= 3500
 
 
-def test_stream_progress_tracker():
+def test_stream_progress_tracker() -> None:
     messages = []
 
     def on_progress(text: str) -> None:
@@ -858,7 +880,10 @@ def test_stream_progress_tracker():
         tracker.stop()
 
 
-def test_run_antigravity_stream_multi_step_flow(tmp_path):
+def test_run_antigravity_stream_multi_step_flow(
+    tmp_path: Path,
+    storage: SessionStorage,
+) -> None:
     agy_mock = str(tmp_path / "agy")
     with open(agy_mock, "w") as f:
         f.write("#!/bin/sh\nexit 0\n")
@@ -941,6 +966,7 @@ def test_run_antigravity_stream_multi_step_flow(tmp_path):
                     12345,
                     workspace_dir=str(tmp_path),
                     progress_callback=on_progress,
+                    storage=storage,
                 )
 
                 assert resp == "Everything is up to date!"
@@ -951,14 +977,16 @@ def test_run_antigravity_stream_multi_step_flow(tmp_path):
                 assert len(captured_progress) > 0
 
 
-def test_persona_prompt_injected_only_on_first_turn(tmp_path):
+def test_persona_prompt_injected_only_on_first_turn(
+    tmp_path: Path,
+    storage: SessionStorage,
+) -> None:
     agy_mock = str(tmp_path / "agy")
     with open(agy_mock, "w") as f:
         f.write("#!/bin/sh\nexit 0\n")
     os.chmod(agy_mock, 0o755)  # noqa: S103
 
     chat_id = 889911
-    stream_runner.active_conversations.pop(chat_id, None)
 
     mock_process = MagicMock()
     mock_process.stdout.readline.side_effect = [
@@ -976,6 +1004,7 @@ def test_persona_prompt_injected_only_on_first_turn(tmp_path):
                     "First prompt",
                     chat_id,
                     workspace_dir=str(tmp_path),
+                    storage=storage,
                 )
                 args, kwargs = mock_popen.call_args
                 cmd = args[0]
@@ -984,7 +1013,7 @@ def test_persona_prompt_injected_only_on_first_turn(tmp_path):
 
                 assert "STYLE GUIDELINES" in turn1_prompt
                 assert "First prompt" in turn1_prompt
-                assert stream_runner.active_conversations[chat_id] == "conv-test-123"
+                assert storage.get_active_session(chat_id) == "conv-test-123"
 
                 # Turn 2: Follow-up in existing conversation
                 mock_process.stdout.readline.side_effect = [
@@ -998,6 +1027,7 @@ def test_persona_prompt_injected_only_on_first_turn(tmp_path):
                     "Second prompt",
                     chat_id,
                     workspace_dir=str(tmp_path),
+                    storage=storage,
                 )
                 args2, kwargs2 = mock_popen.call_args
                 cmd2 = args2[0]
@@ -1011,8 +1041,8 @@ def test_persona_prompt_injected_only_on_first_turn(tmp_path):
                 assert "conv-test-123" in cmd2
 
                 # Reset session -> Turn 3 should be treated as a new conversation again
-                stream_runner.reset_session(chat_id)
-                assert stream_runner.active_conversations.get(chat_id) is None
+                stream_runner.reset_session(chat_id, storage=storage)
+                assert storage.get_active_session(chat_id) is None
 
                 mock_process.stdout.readline.side_effect = [
                     json.dumps({"event": "init", "conversation_id": "conv-test-456"})
@@ -1030,6 +1060,7 @@ def test_persona_prompt_injected_only_on_first_turn(tmp_path):
                     "Third prompt in new session",
                     chat_id,
                     workspace_dir=str(tmp_path),
+                    storage=storage,
                 )
                 args3, kwargs3 = mock_popen.call_args
                 cmd3 = args3[0]

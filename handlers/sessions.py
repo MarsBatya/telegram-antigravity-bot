@@ -15,17 +15,21 @@ from keyboards import (
     get_session_menu_keyboard,
     get_session_picker_keyboard,
 )
-import stream_runner
+from storage import SessionStorage
 
 router = Router(name="sessions")
 
 
 @router.message(F.text == "💬 Active Session")
-async def show_active_session_info(message: Message, bot: Bot) -> None:
+async def show_active_session_info(
+    message: Message,
+    bot: Bot,
+    session_storage: SessionStorage,
+) -> None:
     chat_id = message.chat.id
-    active_conv = agent_runner.active_conversations.get(chat_id)
-    user_ws = agent_runner.get_chat_workspace(chat_id)
-    usage = stream_runner.get_token_usage(chat_id)
+    active_conv = session_storage.get_active_session(chat_id)
+    user_ws = session_storage.get_workspace(chat_id)
+    usage = session_storage.get_token_usage(chat_id)
     sess_tok = usage["session_tokens"]
 
     if isinstance(active_conv, str):
@@ -60,7 +64,11 @@ async def show_active_session_info(message: Message, bot: Bot) -> None:
 
 @router.message(Command(commands=["resume"]))
 @router.message(F.text == "▶️ Resume / Session")
-async def execute_resume(message: Message, bot: Bot) -> None:
+async def execute_resume(
+    message: Message,
+    bot: Bot,
+    session_storage: SessionStorage,
+) -> None:
     text = message.text or ""
     args = text.split(maxsplit=1)
     if len(args) > 1 and text != "▶️ Resume / Session":
@@ -78,17 +86,30 @@ async def execute_resume(message: Message, bot: Bot) -> None:
             status_text=status_text,
             runner_func=agent_runner.resume_session,
             reply_to_message_id=message.message_id,
+            session_storage=session_storage,
         )
     else:
-        await show_session_picker_message(message, bot)
+        await show_session_picker_message(
+            message,
+            bot,
+            session_storage=session_storage,
+        )
 
 
 @router.callback_query(NavigationCallback.filter(F.target == "select_session_menu"))
-async def handle_select_session_menu(callback: CallbackQuery, bot: Bot) -> None:
-    await show_session_picker_callback(callback)
+async def handle_select_session_menu(
+    callback: CallbackQuery,
+    bot: Bot,
+    session_storage: SessionStorage,
+) -> None:
+    await show_session_picker_callback(callback, session_storage=session_storage)
 
 
-async def show_session_picker_message(message: Message, bot: Bot) -> None:
+async def show_session_picker_message(
+    message: Message,
+    bot: Bot,
+    session_storage: SessionStorage,
+) -> None:
     sessions = agent_runner.get_recent_sessions(limit=6)
     if not sessions:
         await reply_safe(
@@ -98,7 +119,7 @@ async def show_session_picker_message(message: Message, bot: Bot) -> None:
         )
         return
 
-    active_conv = agent_runner.active_conversations.get(message.chat.id)
+    active_conv = session_storage.get_active_session(message.chat.id)
     markup = get_session_picker_keyboard(sessions, active_conv)
     text = (
         "📜 <b>Select / Resume Conversation Session:</b>\n\n"
@@ -107,7 +128,11 @@ async def show_session_picker_message(message: Message, bot: Bot) -> None:
     await reply_safe(bot, message, text, reply_markup=markup)
 
 
-async def show_session_picker_callback(callback: CallbackQuery) -> None:
+async def show_session_picker_callback(
+    callback: CallbackQuery,
+    *,
+    session_storage: SessionStorage,
+) -> None:
     if callback.message is None:
         return
     sessions = agent_runner.get_recent_sessions(limit=6)
@@ -119,7 +144,7 @@ async def show_session_picker_callback(callback: CallbackQuery) -> None:
             )
         return
 
-    active_conv = agent_runner.active_conversations.get(callback.message.chat.id)
+    active_conv = session_storage.get_active_session(callback.message.chat.id)
     markup = get_session_picker_keyboard(sessions, active_conv)
     text = (
         "📜 <b>Select / Resume Conversation Session:</b>\n\n"
@@ -134,6 +159,7 @@ async def handle_session_callback(
     callback: CallbackQuery,
     callback_data: SessionCallback,
     bot: Bot,
+    session_storage: SessionStorage,
 ) -> None:
     if callback.message is None:
         return
@@ -142,7 +168,7 @@ async def handle_session_callback(
     conv_id = callback_data.session_id
 
     if action == "new" or conv_id == "new":
-        agent_runner.reset_session(chat_id)
+        agent_runner.reset_session(chat_id, storage=session_storage)
         await callback.answer("Starting new session.")
         with contextlib.suppress(Exception):
             await callback.message.edit_text(
@@ -152,8 +178,8 @@ async def handle_session_callback(
             )
     elif action == "delete":
         if agent_runner.delete_session(conv_id):
-            if agent_runner.active_conversations.get(chat_id) == conv_id:
-                agent_runner.reset_session(chat_id)
+            if session_storage.get_active_session(chat_id) == conv_id:
+                agent_runner.reset_session(chat_id, storage=session_storage)
             await callback.answer("Session deleted successfully.")
             with contextlib.suppress(Exception):
                 await callback.message.edit_text(
@@ -164,7 +190,7 @@ async def handle_session_callback(
         else:
             await callback.answer("Failed to delete session.", show_alert=True)
     elif action == "select":
-        agent_runner.set_active_session(chat_id, conv_id)
+        agent_runner.set_active_session(chat_id, conv_id, storage=session_storage)
         await callback.answer("Loading session history...")
         await show_session_history_card(
             bot=bot,
@@ -237,7 +263,11 @@ async def show_session_history_card(
 
 
 @router.message(Command(commands=["rename"]))
-async def rename_session_command(message: Message, bot: Bot) -> None:
+async def rename_session_command(
+    message: Message,
+    bot: Bot,
+    session_storage: SessionStorage,
+) -> None:
     text = message.text or ""
     args = text.split(maxsplit=1)
     if len(args) < 2:
@@ -249,8 +279,9 @@ async def rename_session_command(message: Message, bot: Bot) -> None:
         )
         return
 
+    storage = session_storage
     new_title = args[1].strip()
-    active_conv = agent_runner.active_conversations.get(message.chat.id)
+    active_conv = storage.get_active_session(message.chat.id)
 
     if not isinstance(active_conv, str):
         await reply_safe(
@@ -291,8 +322,12 @@ async def delete_session_command(message: Message, bot: Bot) -> None:
 
 @router.message(Command(commands=["new", "reset"]))
 @router.message(F.text == "🔄 New Session")
-async def reset_conversation(message: Message, bot: Bot) -> None:
-    agent_runner.reset_session(message.chat.id)
+async def reset_conversation(
+    message: Message,
+    bot: Bot,
+    session_storage: SessionStorage,
+) -> None:
+    agent_runner.reset_session(message.chat.id, storage=session_storage)
     await reply_safe(
         bot,
         message,
