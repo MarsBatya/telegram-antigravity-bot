@@ -80,6 +80,14 @@ OAUTH_TOKEN_PATH = os.getenv(
     "OAUTH_TOKEN_PATH",
     os.path.expanduser("~/.gemini/antigravity-cli/antigravity-oauth-token"),
 ).strip()
+CLOUDCODE_BASE_URL = (
+    os.getenv(
+        "CLOUDCODE_BASE_URL",
+        "https://daily-cloudcode-pa.googleapis.com",
+    )
+    .strip()
+    .rstrip("/")
+)
 SESSION_FILE = os.getenv(
     "SESSION_FILE",
     os.path.join(os.path.dirname(__file__), "sessions.json"),

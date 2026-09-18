@@ -245,8 +245,18 @@ def fetch_live_user_quota_summary(token_file: str | None = None) -> str:
             "User-Agent": "antigravity-cli/1.1.9",
         }
 
-        url = "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary"
-        req = urllib.request.Request(url, data=b"{}", headers=headers, method="POST")
+        base_url = getattr(
+            config,
+            "CLOUDCODE_BASE_URL",
+            "https://daily-cloudcode-pa.googleapis.com",
+        ).rstrip("/")
+        url = f"{base_url}/v1internal:retrieveUserQuotaSummary"
+        req = urllib.request.Request(  # noqa: S310
+            url,
+            data=b"{}",
+            headers=headers,
+            method="POST",
+        )
 
         with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310
             data = json.loads(resp.read().decode("utf-8"))
@@ -309,8 +319,18 @@ def fetch_available_models_live(
             "User-Agent": "antigravity-cli/1.1.9",
         }
 
-        url = "https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels"
-        req = urllib.request.Request(url, data=b"{}", headers=headers, method="POST")
+        base_url = getattr(
+            config,
+            "CLOUDCODE_BASE_URL",
+            "https://daily-cloudcode-pa.googleapis.com",
+        ).rstrip("/")
+        url = f"{base_url}/v1internal:fetchAvailableModels"
+        req = urllib.request.Request(  # noqa: S310
+            url,
+            data=b"{}",
+            headers=headers,
+            method="POST",
+        )
 
         with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310
             data = json.loads(resp.read().decode("utf-8"))

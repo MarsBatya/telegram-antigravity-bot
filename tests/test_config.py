@@ -44,6 +44,7 @@ def test_config_constants():
     assert config.DEFAULT_MODEL == "gemini-3.6-flash-high"
     assert config.DEFAULT_EFFORT == "high"
     assert config.DEFAULT_MODE == "accept-edits"
+    assert "daily-cloudcode-pa" in config.CLOUDCODE_BASE_URL
     assert "SYSTEM DIRECTIVE" in config.SYSTEM_PERSONA_PROMPT
 
 
