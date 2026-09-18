@@ -73,6 +73,7 @@ DEFAULT_WORKSPACE=/root/my-project
 | `ALLOWED_USER_IDS` | Yes | - | Comma-separated Telegram user IDs allowed to use the bot |
 | `AGY_PATH` | No | `/root/.local/bin/agy` | Path to the Antigravity CLI binary |
 | `DEFAULT_WORKSPACE` | No | `/root/my-project` | Default working directory for the agent |
+| `HTTP_PROXY` | No | - | Optional HTTP/HTTPS/SOCKS5 proxy URL for Telegram connection |
 
 ### 3. Install dependencies and run
 

@@ -709,3 +709,72 @@ async def test_on_shutdown() -> None:
         await bot.on_shutdown()
         mock_cleanup.assert_called_once()
         mock_close.assert_called_once()
+
+
+def test_mask_proxy_url() -> None:
+    assert bot.mask_proxy_url(None) == ""
+    assert bot.mask_proxy_url("") == ""
+    assert bot.mask_proxy_url("http://127.0.0.1:8080") == "http://127.0.0.1:8080"
+    assert (
+        bot.mask_proxy_url("http://admin:secret123@proxy.example.com:8080")
+        == "http://admin:***@proxy.example.com:8080"
+    )
+    assert (
+        bot.mask_proxy_url("socks5://user:pass@127.0.0.1:1080")
+        == "socks5://user:***@127.0.0.1:1080"
+    )
+
+
+def test_create_bot_session_explicit_proxy() -> None:
+    session = bot.create_bot_session("http://127.0.0.1:8080")
+    assert session is not None
+    assert session.proxy == "http://127.0.0.1:8080"
+
+
+def test_create_bot_session_empty_proxy() -> None:
+    session = bot.create_bot_session("")
+    assert session is None
+
+
+def test_create_bot_session_from_env() -> None:
+    with patch("config.get_http_proxy", return_value="http://10.0.0.1:8080"):
+        session = bot.create_bot_session()
+        assert session is not None
+        assert session.proxy == "http://10.0.0.1:8080"
+
+    with patch("config.get_http_proxy", return_value=None):
+        session = bot.create_bot_session()
+        assert session is None
+
+
+def test_create_bot_with_proxy() -> None:
+    custom_bot = bot.create_bot(
+        token="123456:TEST_TOKEN",  # noqa: S106
+        proxy="http://192.168.1.1:8080",
+    )
+    assert custom_bot.token == "123456:TEST_TOKEN"  # noqa: S105
+    assert getattr(custom_bot.session, "proxy", None) == "http://192.168.1.1:8080"
+
+
+def test_create_bot_without_proxy() -> None:
+    with patch("config.get_http_proxy", return_value=None):
+        custom_bot = bot.create_bot(
+            token="123456:TEST_TOKEN",  # noqa: S106
+            proxy=None,
+        )
+        assert getattr(custom_bot.session, "proxy", None) is None
+
+
+async def test_command_status_displays_proxy() -> None:
+    mock_bot = AsyncMock(spec=Bot)
+    mock_session = MagicMock()
+    mock_session.proxy = "http://user:secret@127.0.0.1:8080"
+    mock_bot.session = mock_session
+
+    with patch("handlers.commands.reply_safe", new=AsyncMock()) as mock_reply:
+        msg = make_mock_message(user_id=12345, text="/status")
+        await bot.send_status(msg, mock_bot)
+        mock_reply.assert_called_once()
+        status_text = mock_reply.call_args[0][2]
+        assert "Telegram Proxy:" in status_text
+        assert "http://user:***@127.0.0.1:8080" in status_text

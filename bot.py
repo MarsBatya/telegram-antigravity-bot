@@ -4,6 +4,7 @@ from typing import Any
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
+from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.enums import ParseMode
 from aiogram.utils.callback_answer import CallbackAnswerMiddleware
 
@@ -12,6 +13,7 @@ from bot_utils import (
     PathMapper,
     is_authorized,
     make_progress_bar,
+    mask_proxy_url,
     path_mapper,
     register_telegram_commands,
     reply_safe,
@@ -85,10 +87,32 @@ _bot_token = (
     else "123456:TEST_DUMMY_TOKEN"
 )
 
-bot = Bot(
-    token=_bot_token,
-    default=DefaultBotProperties(parse_mode=ParseMode.HTML),
-)
+
+def create_bot_session(proxy: str | None = None) -> AiohttpSession | None:
+    """Creates an AiohttpSession configured with HTTP proxy if present."""
+    target_proxy = config.get_http_proxy() if proxy is None else proxy
+    if target_proxy and target_proxy.strip():
+        norm_proxy = config.normalize_proxy_url(target_proxy)
+        if norm_proxy:
+            return AiohttpSession(proxy=norm_proxy)
+    return None
+
+
+def create_bot(
+    token: str | None = None,
+    proxy: str | None = None,
+) -> Bot:
+    """Creates a Bot instance with configured session and defaults."""
+    target_token = token or _bot_token
+    session = create_bot_session(proxy=proxy)
+    return Bot(
+        token=target_token,
+        session=session,
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+    )
+
+
+bot = create_bot()
 
 dp = Dispatcher()
 
@@ -131,6 +155,10 @@ async def main() -> None:
     print("🚀 Starting Antigravity AI Agent Bot (aiogram v3 Modular Architecture)...")
     print(f"📂 Default Workspace Dir: {config.DEFAULT_WORKSPACE}")
     print(f"🔒 Allowed User IDs: {config.ALLOWED_USER_IDS}")
+    session = getattr(bot, "session", None)
+    session_proxy = getattr(session, "proxy", None) if session is not None else None
+    if session_proxy:
+        print(f"🌐 Telegram Connection Proxy: {mask_proxy_url(str(session_proxy))}")
 
     try:
         await bot.delete_webhook(drop_pending_updates=True)
@@ -148,6 +176,8 @@ __all__ = [
     "bot",
     "change_workspace",
     "cleanup_all_active_processes",
+    "create_bot",
+    "create_bot_session",
     "delete_session_command",
     "dp",
     "execute_goal",
@@ -172,6 +202,7 @@ __all__ = [
     "is_authorized",
     "main",
     "make_progress_bar",
+    "mask_proxy_url",
     "on_shutdown",
     "path_mapper",
     "process_agent_prompt",

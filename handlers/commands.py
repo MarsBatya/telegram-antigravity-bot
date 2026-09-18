@@ -7,7 +7,7 @@ from aiogram.types import Message
 
 import agent_runner
 import config
-from bot_utils import make_progress_bar, reply_safe, send_long_message
+from bot_utils import make_progress_bar, mask_proxy_url, reply_safe, send_long_message
 from keyboards import get_main_reply_keyboard
 import stream_runner
 
@@ -122,6 +122,18 @@ async def send_status(message: Message, bot: Bot) -> None:
         disk_used_str = f"{disk.used // (1024**3)} GB"
         disk_total_str = f"{disk.total // (1024**3)} GB"
 
+        session = getattr(bot, "session", None)
+        session_proxy = getattr(session, "proxy", None) if session is not None else None
+        if not session_proxy and config.HTTP_PROXY:
+            session_proxy = config.HTTP_PROXY
+
+        masked_proxy = mask_proxy_url(str(session_proxy)) if session_proxy else ""
+        proxy_line = (
+            f"\n🌐 <b>Telegram Proxy:</b> <code>{html.escape(masked_proxy)}</code>"
+            if session_proxy
+            else ""
+        )
+
         status_text = (
             "📊 <b>Server & AI Engine Status</b>\n\n"
             f"💻 <b>CPU Usage:</b>\n<code>{cpu_bar}</code>\n\n"
@@ -135,6 +147,7 @@ async def send_status(message: Message, bot: Bot) -> None:
             f"📊 <b>Total Tokens:</b> {usage['total_tokens']:,} Tokens\n"
             f"🚀 <b>AGY Executable:</b> <code>{config.AGY_PATH}</code>\n"
             f"📂 <b>Workspace Active:</b> <code>{html.escape(user_ws)}</code>"
+            f"{proxy_line}"
         )
         await reply_safe(bot, message, status_text)
     except Exception as e:

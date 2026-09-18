@@ -25,6 +25,32 @@ ALLOWED_USERS_RAW = os.getenv("ALLOWED_USER_IDS", "").strip()
 ALLOWED_USER_IDS = parse_allowed_user_ids(ALLOWED_USERS_RAW)
 
 
+def normalize_proxy_url(proxy_url: str | None) -> str | None:
+    """Normalizes a proxy URL, ensuring it has a scheme prefix."""
+    if not proxy_url:
+        return None
+    cleaned = proxy_url.strip()
+    if not cleaned:
+        return None
+    if not cleaned.startswith(("http://", "https://", "socks5://", "socks4://")):
+        cleaned = f"http://{cleaned}"
+    return cleaned
+
+
+def get_http_proxy() -> str | None:
+    """Reads HTTP proxy settings from environment variables."""
+    raw = (
+        os.getenv("HTTP_PROXY")
+        or os.getenv("http_proxy")
+        or os.getenv("HTTPS_PROXY")
+        or os.getenv("https_proxy")
+    )
+    return normalize_proxy_url(raw)
+
+
+HTTP_PROXY = get_http_proxy()
+
+
 def _get_default_agy_path() -> str:
     env_val = os.getenv("AGY_PATH")
     if env_val and env_val.strip():

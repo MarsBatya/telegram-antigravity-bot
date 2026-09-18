@@ -1,6 +1,7 @@
 import os
 import re
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 from aiogram import Bot
 from aiogram.types import BotCommand, InlineKeyboardMarkup, Message, ReplyKeyboardMarkup
@@ -34,6 +35,25 @@ class PathMapper:
 
 
 path_mapper = PathMapper()
+
+
+def mask_proxy_url(url: str | None) -> str:
+    """Masks sensitive password/credentials in proxy URLs for safe logging/display."""
+    if not url:
+        return ""
+    try:
+        parts = urlsplit(url)
+        if parts.password:
+            user = parts.username or ""
+            host = parts.hostname or ""
+            port_str = f":{parts.port}" if parts.port else ""
+            masked_netloc = f"{user}:***@{host}{port_str}"
+            return urlunsplit(
+                (parts.scheme, masked_netloc, parts.path, parts.query, parts.fragment),
+            )
+    except Exception:  # noqa: S110
+        pass
+    return url
 
 
 def make_progress_bar(percent: float, length: int = 10) -> str:

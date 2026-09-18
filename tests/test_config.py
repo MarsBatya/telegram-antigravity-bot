@@ -71,3 +71,54 @@ def test_default_paths_portable():
         assert "/root/" not in config.DEFAULT_WORKSPACE
         assert "/root/" not in config.BRAIN_DIR
         assert "/root/" not in config.OAUTH_TOKEN_PATH
+
+
+def test_normalize_proxy_url():
+    assert config.normalize_proxy_url(None) is None
+    assert config.normalize_proxy_url("") is None
+    assert config.normalize_proxy_url("   ") is None
+    assert (
+        config.normalize_proxy_url("http://127.0.0.1:8080") == "http://127.0.0.1:8080"
+    )
+    assert (
+        config.normalize_proxy_url("https://proxy.example.com:8443")
+        == "https://proxy.example.com:8443"
+    )
+    assert (
+        config.normalize_proxy_url("socks5://127.0.0.1:1080")
+        == "socks5://127.0.0.1:1080"
+    )
+    assert (
+        config.normalize_proxy_url("socks4://127.0.0.1:1080")
+        == "socks4://127.0.0.1:1080"
+    )
+    assert config.normalize_proxy_url("127.0.0.1:8080") == "http://127.0.0.1:8080"
+    assert (
+        config.normalize_proxy_url("  proxy.local:3128  ") == "http://proxy.local:3128"
+    )
+
+
+def test_get_http_proxy():
+    clean_env = {
+        "HTTP_PROXY": "",
+        "http_proxy": "",
+        "HTTPS_PROXY": "",
+        "https_proxy": "",
+    }
+    with patch.dict("os.environ", clean_env):
+        assert config.get_http_proxy() is None
+
+    with patch.dict("os.environ", {**clean_env, "HTTP_PROXY": "http://10.0.0.1:8080"}):
+        assert config.get_http_proxy() == "http://10.0.0.1:8080"
+
+    with patch.dict("os.environ", {**clean_env, "http_proxy": "10.0.0.2:8080"}):
+        assert config.get_http_proxy() == "http://10.0.0.2:8080"
+
+    with patch.dict(
+        "os.environ",
+        {**clean_env, "HTTPS_PROXY": "socks5://10.0.0.3:1080"},
+    ):
+        assert config.get_http_proxy() == "socks5://10.0.0.3:1080"
+
+    with patch.dict("os.environ", {**clean_env, "https_proxy": "http://10.0.0.4:8080"}):
+        assert config.get_http_proxy() == "http://10.0.0.4:8080"
