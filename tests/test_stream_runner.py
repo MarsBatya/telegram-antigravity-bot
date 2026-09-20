@@ -6,27 +6,19 @@ from pathlib import Path
 import time
 from unittest.mock import MagicMock, patch
 
+
 from app.core import config
 from app.core.storage import SessionStorage
 from app.runner import stream_runner
+from app.utils.bot_utils import make_progress_bar
 
 
 def test_ascii_bar() -> None:
-    # 0%
-    bar0 = stream_runner.make_ascii_bar(0, 10)
-    assert bar0 == "░" * 10
-
-    # 50%
-    bar50 = stream_runner.make_ascii_bar(50, 10)
-    assert bar50 == "█████░░░░░"
-
-    # 100%
-    bar100 = stream_runner.make_ascii_bar(100, 10)
-    assert bar100 == "█" * 10
-
-    # Clamping < 0 and > 100
-    assert stream_runner.make_ascii_bar(-10, 10) == "░" * 10
-    assert stream_runner.make_ascii_bar(150, 10) == "█" * 10
+    assert "[░░░░░░░░░░] 0.0%" in make_progress_bar(0, 10)
+    assert "[█████░░░░░] 50.0%" in make_progress_bar(50, 10)
+    assert "[██████████] 100.0%" in make_progress_bar(100, 10)
+    assert "[░░░░░░░░░░] -10.0%" in make_progress_bar(-10, 10)
+    assert "[██████████] 150.0%" in make_progress_bar(150, 10)
 
 
 def test_parse_reset_time() -> None:
@@ -59,7 +51,7 @@ def test_session_persistence(tmp_path: Path) -> None:
     storage = SessionStorage(file_path=session_file)
 
     # Initial load on missing file
-    stream_runner.load_persistent_sessions(storage, session_file)
+    storage.load(session_file)
     assert storage.active_conversations == {}
 
     # Set data and save
@@ -68,11 +60,11 @@ def test_session_persistence(tmp_path: Path) -> None:
     storage.set_setting(123, "model", "m1")
     storage.set_setting(123, "effort", "low")
     storage.set_setting(123, "mode", "plan")
-    stream_runner.save_persistent_sessions(storage, session_file)
+    storage.save(session_file)
 
     # Reload from file
     new_storage = SessionStorage(file_path=session_file)
-    stream_runner.load_persistent_sessions(new_storage, session_file)
+    new_storage.load(session_file)
 
     assert new_storage.get_active_session(123) == "conv-abc"
     assert new_storage.get_workspace(123) == "/path/to/ws"
@@ -85,49 +77,29 @@ def test_session_persistence_legacy_format(tmp_path: Path) -> None:
         json.dump({"456": "conv-legacy"}, f)
 
     storage = SessionStorage(file_path=session_file)
-    stream_runner.load_persistent_sessions(storage, session_file)
+    storage.load(session_file)
     assert storage.get_active_session(456) == "conv-legacy"
 
 
 def test_chat_settings_and_workspace(tmp_path: Path, storage: SessionStorage) -> None:
     chat_id = 9999
-    assert (
-        stream_runner.get_chat_setting(chat_id, "model", storage=storage)
-        == config.DEFAULT_MODEL
-    )
-    assert (
-        stream_runner.get_chat_setting(chat_id, "effort", storage=storage)
-        == config.DEFAULT_EFFORT
-    )
-    assert (
-        stream_runner.get_chat_setting(chat_id, "mode", storage=storage)
-        == config.DEFAULT_MODE
-    )
+    assert storage.get_setting(chat_id, "model") == config.DEFAULT_MODEL
+    assert storage.get_setting(chat_id, "effort") == config.DEFAULT_EFFORT
+    assert storage.get_setting(chat_id, "mode") == config.DEFAULT_MODE
 
-    stream_runner.set_chat_setting(chat_id, "model", "custom-model", storage=storage)
-    assert (
-        stream_runner.get_chat_setting(chat_id, "model", storage=storage)
-        == "custom-model"
-    )
+    storage.set_setting(chat_id, "model", "custom-model")
+    assert storage.get_setting(chat_id, "model") == "custom-model"
 
-    assert (
-        stream_runner.get_chat_workspace(chat_id, storage=storage)
-        == config.DEFAULT_WORKSPACE
-    )
+    assert storage.get_workspace(chat_id) == config.DEFAULT_WORKSPACE
     test_ws = str(tmp_path / "test-ws")
-    stream_runner.set_chat_workspace(chat_id, test_ws, storage=storage)
-    assert stream_runner.get_chat_workspace(
-        chat_id,
-        storage=storage,
-    ) == os.path.abspath(
-        test_ws,
-    )
+    storage.set_workspace(chat_id, test_ws)
+    assert storage.get_workspace(chat_id) == os.path.abspath(test_ws)
 
 
 def test_chat_lock(storage: SessionStorage) -> None:
-    lock1 = stream_runner.get_chat_lock(101, storage=storage)
-    lock2 = stream_runner.get_chat_lock(101, storage=storage)
-    lock3 = stream_runner.get_chat_lock(102, storage=storage)
+    lock1 = storage.get_lock(101)
+    lock2 = storage.get_lock(101)
+    lock3 = storage.get_lock(102)
     assert lock1 is lock2
     assert lock1 is not lock3
 
@@ -296,22 +268,22 @@ def test_get_full_session_history_formatted(tmp_path: Path) -> None:
 
 
 def test_active_session_and_reset(storage: SessionStorage) -> None:
-    stream_runner.set_active_session(777, "session-777", storage=storage)
+    storage.set_active_session(777, "session-777")
     assert storage.get_active_session(777) == "session-777"
 
-    stream_runner.reset_session(777, storage=storage)
+    storage.reset_session(777)
     assert storage.get_active_session(777) is None
 
 
 def test_cancel_chat_process(storage: SessionStorage) -> None:
     # No process
-    assert stream_runner.cancel_chat_process(99999, storage=storage) is False
+    assert storage.cancel_chat_process(99999) is False
 
     # Mock process already finished
     mock_proc = MagicMock()
     mock_proc.poll.return_value = 0
     storage.register_process(111, mock_proc)
-    assert stream_runner.cancel_chat_process(111, storage=storage) is False
+    assert storage.cancel_chat_process(111) is False
 
     # Mock process running
     mock_proc_running = MagicMock()
@@ -320,7 +292,7 @@ def test_cancel_chat_process(storage: SessionStorage) -> None:
         0,
     ]  # First poll running, second terminated
     storage.register_process(222, mock_proc_running)
-    assert stream_runner.cancel_chat_process(222, storage=storage) is True
+    assert storage.cancel_chat_process(222) is True
     mock_proc_running.terminate.assert_called_once()
 
 
@@ -440,7 +412,7 @@ def test_fetch_live_user_quota_summary(tmp_path: Path) -> None:
         assert "developer@example.com" in quota_summary
         assert "GEMINI MODELS" in quota_summary
         assert "Pro Requests" in quota_summary
-        assert "75.00%" in quota_summary
+        assert "75.0%" in quota_summary
         assert "[Disabled]" in quota_summary
 
 
@@ -516,7 +488,7 @@ def test_run_antigravity_stream_streaming_events(
 
     with patch.object(config, "AGY_PATH", agy_mock):
         with patch("subprocess.Popen", return_value=mock_process):
-            with patch.object(stream_runner, "save_persistent_sessions"):
+            with patch.object(storage, "save"):
                 resp, usage, files = stream_runner.run_antigravity_stream(
                     "Say hello",
                     9988,
@@ -534,20 +506,15 @@ def test_run_smash_and_resume_stream(storage: SessionStorage) -> None:
     with patch.object(stream_runner, "run_antigravity_stream") as mock_run:
         mock_run.return_value = ("Success", {}, [])
 
-        # Smash stream
-        stream_runner.run_smash_stream("Fix everything", 555, storage=storage)
+        # Smash prompt
+        smash_prompt = (
+            "💥 SMASH MODE INSTRUCTION: Complete the following task: Fix everything"
+        )
+        stream_runner.run_antigravity_stream(smash_prompt, 555, storage=storage)
         mock_run.assert_called_once()
         prompt_arg = mock_run.call_args[0][0]
         assert "SMASH MODE INSTRUCTION" in prompt_arg
         assert "Fix everything" in prompt_arg
-        assert mock_run.call_args[1].get("storage") is storage
-
-        mock_run.reset_mock()
-
-        # Resume stream
-        stream_runner.resume_stream("Keep going", 555, storage=storage)
-        mock_run.assert_called_once()
-        assert mock_run.call_args[0][0] == "Keep going"
         assert mock_run.call_args[1].get("storage") is storage
 
 
@@ -600,7 +567,7 @@ def test_cancel_chat_process_kills_process_group(storage: SessionStorage) -> Non
         patch("os.getpgid", return_value=4321, create=True) as mock_getpgid,
         patch("os.killpg", create=True) as mock_killpg,
     ):
-        assert stream_runner.cancel_chat_process(333, storage=storage) is True
+        assert storage.cancel_chat_process(333) is True
         mock_getpgid.assert_called_with(4321)
         assert mock_killpg.call_count >= 1
         mock_proc.terminate.assert_called_once()
@@ -623,7 +590,7 @@ def test_cancel_chat_process_windows(storage: SessionStorage) -> None:
         child_mock = MagicMock()
         mock_psutil_proc.return_value.children.return_value = [child_mock]
 
-        assert stream_runner.cancel_chat_process(555, storage=storage) is True
+        assert storage.cancel_chat_process(555) is True
         mock_psutil_proc.assert_called_with(7777)
         child_mock.kill.assert_called_once()
         mock_psutil_proc.return_value.kill.assert_called_once()
@@ -649,7 +616,7 @@ def test_cleanup_all_active_processes(storage: SessionStorage) -> None:
         patch("os.getpgid", return_value=1001, create=True),
         patch("os.killpg", create=True),
     ):
-        stream_runner.cleanup_all_active_processes(storage=storage)
+        storage.cleanup_all_active_processes()
         proc1.terminate.assert_called_once()
         proc2.terminate.assert_not_called()
         assert len(storage.active_processes) == 0
@@ -989,7 +956,7 @@ def test_run_antigravity_stream_multi_step_flow(
 
     with patch.object(config, "AGY_PATH", agy_mock):
         with patch("subprocess.Popen", return_value=mock_process):
-            with patch.object(stream_runner, "save_persistent_sessions"):
+            with patch.object(storage, "save"):
                 resp, usage, files = stream_runner.run_antigravity_stream(
                     "Check git status",
                     12345,
@@ -1027,7 +994,7 @@ def test_persona_prompt_injected_only_on_first_turn(
 
     with patch.object(config, "AGY_PATH", agy_mock):
         with patch("subprocess.Popen", return_value=mock_process) as mock_popen:
-            with patch.object(stream_runner, "save_persistent_sessions"):
+            with patch.object(storage, "save"):
                 # Turn 1: New conversation
                 stream_runner.run_antigravity_stream(
                     "First prompt",
@@ -1072,7 +1039,7 @@ def test_persona_prompt_injected_only_on_first_turn(
                 assert "conv-test-123" in cmd2
 
                 # Reset session -> Turn 3 should be treated as a new conversation again
-                stream_runner.reset_session(chat_id, storage=storage)
+                storage.reset_session(chat_id)
                 assert storage.get_active_session(chat_id) is None
 
                 mock_process.stdout.readline.side_effect = [

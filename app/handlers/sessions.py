@@ -7,7 +7,7 @@ from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 
 from app.core.storage import SessionStorage
-from app.runner import agent_runner
+from app.runner import agent_runner, stream_runner
 from app.ui.callbacks import NavigationCallback, SessionCallback
 from app.ui.keyboards import (
     get_session_delete_keyboard,
@@ -84,7 +84,7 @@ async def execute_resume(
             chat_id=message.chat.id,
             prompt=resume_prompt,
             status_text=status_text,
-            runner_func=agent_runner.resume_session,
+            runner_func=stream_runner.run_antigravity_stream,
             reply_to_message_id=message.message_id,
             session_storage=session_storage,
         )
@@ -168,7 +168,7 @@ async def handle_session_callback(
     conv_id = callback_data.session_id
 
     if action == "new" or conv_id == "new":
-        agent_runner.reset_session(chat_id, storage=session_storage)
+        session_storage.reset_session(chat_id)
         await callback.answer("Starting new session.")
         with contextlib.suppress(Exception):
             await callback.message.edit_text(
@@ -179,7 +179,7 @@ async def handle_session_callback(
     elif action == "delete":
         if agent_runner.delete_session(conv_id):
             if session_storage.get_active_session(chat_id) == conv_id:
-                agent_runner.reset_session(chat_id, storage=session_storage)
+                session_storage.reset_session(chat_id)
             await callback.answer("Session deleted successfully.")
             with contextlib.suppress(Exception):
                 await callback.message.edit_text(
@@ -190,7 +190,7 @@ async def handle_session_callback(
         else:
             await callback.answer("Failed to delete session.", show_alert=True)
     elif action == "select":
-        agent_runner.set_active_session(chat_id, conv_id, storage=session_storage)
+        session_storage.set_active_session(chat_id, conv_id)
         await callback.answer("Loading session history...")
         await show_session_history_card(
             bot=bot,
@@ -327,7 +327,7 @@ async def reset_conversation(
     bot: Bot,
     session_storage: SessionStorage,
 ) -> None:
-    agent_runner.reset_session(message.chat.id, storage=session_storage)
+    session_storage.reset_session(message.chat.id)
     await reply_safe(
         bot,
         message,

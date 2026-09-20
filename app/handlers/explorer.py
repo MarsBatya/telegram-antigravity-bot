@@ -367,16 +367,19 @@ def _paginate_tree_entries(
     return page_dirs, page_files, valid_page, total_pages, total_items
 
 
-async def render_file_explorer_message(
-    message: Message,
-    bot: Bot,
+async def render_file_explorer(
+    event: Message | CallbackQuery,
     path_dir: str,
     *,
     session_storage: SessionStorage,
+    bot: Bot | None = None,
     page: int = 1,
 ) -> None:
+    msg = event if isinstance(event, Message) else event.message
+    if msg is None:
+        return
     norm_path, cur_ws, all_dirs, all_files = _build_tree_data(
-        message.chat.id,
+        msg.chat.id,
         path_dir,
         session_storage=session_storage,
     )
@@ -411,7 +414,30 @@ async def render_file_explorer_message(
         f"{info_line}"
         f"Click a folder to browse, or tap a file to view and upload to chat:"
     )
-    await reply_safe(bot, message, text, reply_markup=markup)
+    if isinstance(event, Message):
+        target_bot = bot or event.bot
+        if target_bot:
+            await reply_safe(target_bot, event, text, reply_markup=markup)
+    else:
+        with contextlib.suppress(Exception):
+            await event.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
+
+
+async def render_file_explorer_message(
+    message: Message,
+    bot: Bot,
+    path_dir: str,
+    *,
+    session_storage: SessionStorage,
+    page: int = 1,
+) -> None:
+    await render_file_explorer(
+        message,
+        path_dir,
+        session_storage=session_storage,
+        bot=bot,
+        page=page,
+    )
 
 
 async def render_file_explorer_callback(
@@ -421,43 +447,9 @@ async def render_file_explorer_callback(
     session_storage: SessionStorage,
     page: int = 1,
 ) -> None:
-    if callback.message is None:
-        return
-    norm_path, cur_ws, all_dirs, all_files = _build_tree_data(
-        callback.message.chat.id,
+    await render_file_explorer(
+        callback,
         path_dir,
         session_storage=session_storage,
-    )
-    page_dirs, page_files, page, total_pages, total_items = _paginate_tree_entries(
-        all_dirs,
-        all_files,
         page=page,
-        page_size=TREE_PAGE_SIZE,
     )
-    markup = get_tree_keyboard(
-        norm_path,
-        cur_ws,
-        page_dirs,
-        page_files,
-        path_mapper.encode,
-        page=page,
-        total_pages=total_pages,
-    )
-    if total_items == 0:
-        info_line = "📊 <i>(Directory is empty)</i>\n\n"
-    elif total_pages > 1:
-        info_line = (
-            f"📊 <b>Page {page}/{total_pages}</b> ({total_items} items total)\n\n"
-        )
-    else:
-        info_line = f"📊 <b>{total_items} items total</b>\n\n"
-
-    platform_desc = "Windows" if sys.platform == "win32" else "Server"
-    text = (
-        f"🌳 <b>Interactive File Explorer ({platform_desc})</b>\n\n"
-        f"📂 <b>Current Path:</b>\n<code>{html.escape(norm_path)}</code>\n\n"
-        f"{info_line}"
-        f"Click a folder to browse, or tap a file to view and upload to chat:"
-    )
-    with contextlib.suppress(Exception):
-        await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")

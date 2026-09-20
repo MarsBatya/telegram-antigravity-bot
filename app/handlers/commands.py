@@ -94,7 +94,7 @@ async def handle_cancel_command(
     bot: Bot,
     session_storage: SessionStorage,
 ) -> None:
-    if agent_runner.cancel_chat_process(message.chat.id, storage=session_storage):
+    if session_storage.cancel_chat_process(message.chat.id):
         await reply_safe(
             bot,
             message,

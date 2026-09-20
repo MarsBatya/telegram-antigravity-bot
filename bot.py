@@ -157,7 +157,7 @@ async def on_shutdown(
         or dp.get("session_storage")
     )
     if isinstance(target_storage, SessionStorage):
-        stream_runner.cleanup_all_active_processes(target_storage)
+        target_storage.cleanup_all_active_processes()
     target_bot = bot or globals().get("bot")
     if target_bot is not None and getattr(target_bot, "session", None) is not None:
         await target_bot.session.close()

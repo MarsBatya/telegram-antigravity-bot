@@ -64,23 +64,40 @@ async def show_model_picker(
     await reply_safe(bot, message, text, reply_markup=markup)
 
 
-@router.callback_query(NavigationCallback.filter(F.target == "effort_menu"))
-async def handle_open_effort_menu(
-    callback: CallbackQuery,
+async def _render_effort_picker(
+    event: Message | CallbackQuery,
     session_storage: SessionStorage,
+    bot: Bot | None = None,
 ) -> None:
-    if callback.message is None:
+    msg = event if isinstance(event, Message) else event.message
+    if msg is None:
         return
-    chat_id = callback.message.chat.id
-    cur_effort = session_storage.get_setting(chat_id, "effort", config.DEFAULT_EFFORT)
+    cur_effort = session_storage.get_setting(
+        msg.chat.id,
+        "effort",
+        config.DEFAULT_EFFORT,
+    )
     markup = get_effort_keyboard(cur_effort)
     text = (
         "🎯 <b>Antigravity Reasoning Effort Level</b>\n\n"
         f"📊 <b>Active Effort Level:</b> <code>{cur_effort}</code>\n\n"
         "Select the AI reasoning depth for task execution:"
     )
-    with contextlib.suppress(Exception):
-        await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
+    if isinstance(event, Message):
+        target_bot = bot or event.bot
+        if target_bot:
+            await reply_safe(target_bot, event, text, reply_markup=markup)
+    else:
+        with contextlib.suppress(Exception):
+            await event.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
+
+
+@router.callback_query(NavigationCallback.filter(F.target == "effort_menu"))
+async def handle_open_effort_menu(
+    callback: CallbackQuery,
+    session_storage: SessionStorage,
+) -> None:
+    await _render_effort_picker(callback, session_storage)
 
 
 @router.callback_query(ModelCallback.filter())
@@ -109,15 +126,7 @@ async def show_effort_picker(
     bot: Bot,
     session_storage: SessionStorage,
 ) -> None:
-    chat_id = message.chat.id
-    cur_effort = session_storage.get_setting(chat_id, "effort", config.DEFAULT_EFFORT)
-    markup = get_effort_keyboard(cur_effort)
-    text = (
-        "🎯 <b>Antigravity Reasoning Effort Level</b>\n\n"
-        f"📊 <b>Active Effort Level:</b> <code>{cur_effort}</code>\n\n"
-        "Select the AI reasoning depth for task execution:"
-    )
-    await reply_safe(bot, message, text, reply_markup=markup)
+    await _render_effort_picker(message, session_storage, bot=bot)
 
 
 @router.callback_query(EffortCallback.filter())

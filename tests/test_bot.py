@@ -243,10 +243,7 @@ async def test_command_model_picker_and_callback(storage: SessionStorage) -> Non
     await bot.handle_set_model_callback(call, cb_data, session_storage=storage)
     call.message.edit_text.assert_called_once()
     assert "claude-sonnet-4-6" in call.message.edit_text.call_args[0][0]
-    assert (
-        bot.agent_runner.get_chat_setting(12345, "model", storage=storage)
-        == "claude-sonnet-4-6"
-    )
+    assert storage.get_setting(12345, "model") == "claude-sonnet-4-6"
 
 
 async def test_command_effort_picker_and_callback(storage: SessionStorage) -> None:
@@ -263,9 +260,7 @@ async def test_command_effort_picker_and_callback(storage: SessionStorage) -> No
     await bot.handle_set_effort_callback(call, cb_data, session_storage=storage)
     call.message.edit_text.assert_called_once()
     assert "MEDIUM" in call.message.edit_text.call_args[0][0]
-    assert (
-        bot.agent_runner.get_chat_setting(12345, "effort", storage=storage) == "medium"
-    )
+    assert storage.get_setting(12345, "effort") == "medium"
 
 
 async def test_command_mode_picker_and_callback(storage: SessionStorage) -> None:
@@ -282,7 +277,7 @@ async def test_command_mode_picker_and_callback(storage: SessionStorage) -> None
     await bot.handle_set_mode_callback(call, cb_data, session_storage=storage)
     call.message.edit_text.assert_called_once()
     assert "plan" in call.message.edit_text.call_args[0][0]
-    assert bot.agent_runner.get_chat_setting(12345, "mode", storage=storage) == "plan"
+    assert storage.get_setting(12345, "mode") == "plan"
 
 
 async def test_command_workspace_and_callback(
@@ -297,9 +292,8 @@ async def test_command_workspace_and_callback(
         await bot.change_workspace(msg, mock_bot, session_storage=storage)
         mock_reply.assert_called_once()
         assert new_dir in mock_reply.call_args[0][2]
-        assert bot.agent_runner.get_chat_workspace(
+        assert storage.get_workspace(
             12345,
-            storage=storage,
         ) == os.path.abspath(
             new_dir,
         )
@@ -328,32 +322,28 @@ async def test_command_tree_explorer(tmp_path: Path, storage: SessionStorage) ->
     sample_file = tmp_path / "sample.txt"
     sample_file.write_text("hello world")
 
-    with patch.object(
-        bot.agent_runner,
-        "get_chat_workspace",
-        return_value=str(tmp_path),
-    ):
-        with patch(
-            "app.handlers.explorer.reply_safe",
-            new=AsyncMock(),
-        ) as mock_reply:
-            msg = make_mock_message(user_id=12345, text="/tree")
-            await bot.show_tree_explorer(msg, mock_bot, session_storage=storage)
-            mock_reply.assert_called_once()
-            text = mock_reply.call_args[0][2]
-            assert "Interactive File Explorer" in text
+    storage.set_workspace(12345, str(tmp_path))
+    with patch(
+        "app.handlers.explorer.reply_safe",
+        new=AsyncMock(),
+    ) as mock_reply:
+        msg = make_mock_message(user_id=12345, text="/tree")
+        await bot.show_tree_explorer(msg, mock_bot, session_storage=storage)
+        mock_reply.assert_called_once()
+        text = mock_reply.call_args[0][2]
+        assert "Interactive File Explorer" in text
 
 
 async def test_command_cancel_and_stop(storage: SessionStorage) -> None:
     mock_bot = AsyncMock(spec=Bot)
-    with patch.object(bot.agent_runner, "cancel_chat_process", return_value=True):
+    with patch.object(storage, "cancel_chat_process", return_value=True):
         with patch("app.handlers.commands.reply_safe", new=AsyncMock()) as mock_reply:
             msg = make_mock_message(user_id=12345, text="/stop")
             await bot.handle_cancel_command(msg, mock_bot, session_storage=storage)
             mock_reply.assert_called_once()
             assert "Successfully Cancelled" in mock_reply.call_args[0][2]
 
-    with patch.object(bot.agent_runner, "cancel_chat_process", return_value=False):
+    with patch.object(storage, "cancel_chat_process", return_value=False):
         with patch("app.handlers.commands.reply_safe", new=AsyncMock()) as mock_reply:
             msg = make_mock_message(user_id=12345, text="/cancel")
             await bot.handle_cancel_command(msg, mock_bot, session_storage=storage)
@@ -406,11 +396,11 @@ async def test_command_status_and_usage(storage: SessionStorage) -> None:
 
 async def test_command_new_session(storage: SessionStorage) -> None:
     mock_bot = AsyncMock(spec=Bot)
-    with patch.object(bot.agent_runner, "reset_session") as mock_reset:
+    with patch.object(storage, "reset_session") as mock_reset:
         with patch("app.handlers.sessions.reply_safe", new=AsyncMock()) as mock_reply:
             msg = make_mock_message(user_id=12345, text="/new")
             await bot.reset_conversation(msg, mock_bot, session_storage=storage)
-            mock_reset.assert_called_once_with(12345, storage=storage)
+            mock_reset.assert_called_once_with(12345)
             mock_reply.assert_called_once()
             assert "successfully reset" in mock_reply.call_args[0][2]
 
@@ -448,7 +438,7 @@ async def test_command_smash_goal_plan(storage: SessionStorage) -> None:
         msg = make_mock_message(user_id=12345, text="/smash Fix all lints")
         await bot.execute_smash(msg, mock_bot, session_storage=storage)
         mock_proc.assert_called_once()
-        assert mock_proc.call_args[1]["prompt"] == "Fix all lints"
+        assert "Fix all lints" in mock_proc.call_args[1]["prompt"]
         assert mock_proc.call_args[1]["session_storage"] is storage
 
     # Goal with arg
@@ -561,7 +551,7 @@ async def test_show_session_picker_and_history(storage: SessionStorage) -> None:
 async def test_handle_session_selection(storage: SessionStorage) -> None:
     mock_bot = AsyncMock(spec=Bot)
     # Select "new"
-    with patch.object(bot.agent_runner, "reset_session") as mock_reset:
+    with patch.object(storage, "reset_session") as mock_reset:
         call = make_mock_callback(user_id=12345)
         cb_data = SessionCallback(action="new", session_id="new")
         await bot.handle_session_callback(
@@ -570,14 +560,14 @@ async def test_handle_session_selection(storage: SessionStorage) -> None:
             mock_bot,
             session_storage=storage,
         )
-        mock_reset.assert_called_once_with(12345, storage=storage)
+        mock_reset.assert_called_once_with(12345)
         call.answer.assert_called_once_with("Starting new session.")
         assert (
             "New Conversation Session Started" in call.message.edit_text.call_args[0][0]
         )
 
     # Select existing session
-    with patch.object(bot.agent_runner, "set_active_session") as mock_set:
+    with patch.object(storage, "set_active_session") as mock_set:
         with patch(
             "app.handlers.sessions.show_session_history_card",
             new=AsyncMock(),
@@ -590,7 +580,7 @@ async def test_handle_session_selection(storage: SessionStorage) -> None:
                 mock_bot,
                 session_storage=storage,
             )
-            mock_set.assert_called_once_with(12345, "conv-101", storage=storage)
+            mock_set.assert_called_once_with(12345, "conv-101")
             call.answer.assert_called_once_with("Loading session history...")
             mock_card.assert_called_once()
 
@@ -630,7 +620,7 @@ async def test_delete_session_command_and_callback(storage: SessionStorage) -> N
     # Delete callback
     storage.set_active_session(12345, "s1")
     with patch.object(bot.agent_runner, "delete_session", return_value=True):
-        with patch.object(bot.agent_runner, "reset_session") as mock_reset:
+        with patch.object(storage, "reset_session") as mock_reset:
             call = make_mock_callback(user_id=12345)
             cb_data = SessionCallback(action="delete", session_id="s1")
             await bot.handle_session_callback(
@@ -639,7 +629,7 @@ async def test_delete_session_command_and_callback(storage: SessionStorage) -> N
                 mock_bot,
                 session_storage=storage,
             )
-            mock_reset.assert_called_once_with(12345, storage=storage)
+            mock_reset.assert_called_once_with(12345)
             call.answer.assert_called_once_with("Session deleted successfully.")
             assert "Deleted Successfully" in call.message.edit_text.call_args[0][0]
 
@@ -694,7 +684,7 @@ async def test_additional_callbacks(storage: SessionStorage) -> None:
 
     # cancel_execution callback
     call_cancel = make_mock_callback(user_id=12345)
-    with patch.object(bot.agent_runner, "cancel_chat_process", return_value=True):
+    with patch.object(storage, "cancel_chat_process", return_value=True):
         await bot.handle_cancel_callback(call_cancel, session_storage=storage)
         call_cancel.answer.assert_called_once_with("Process cancelled!")
         assert (
@@ -757,11 +747,11 @@ async def test_send_long_message_unbroken_giant_line() -> None:
 
 async def test_on_shutdown(storage: SessionStorage) -> None:
     with (
-        patch("bot.stream_runner.cleanup_all_active_processes") as mock_cleanup,
+        patch.object(storage, "cleanup_all_active_processes") as mock_cleanup,
         patch.object(bot.bot.session, "close", new=AsyncMock()) as mock_close,
     ):
         await bot.on_shutdown(session_storage=storage)
-        mock_cleanup.assert_called_once_with(storage)
+        mock_cleanup.assert_called_once()
         mock_close.assert_called_once()
 
 

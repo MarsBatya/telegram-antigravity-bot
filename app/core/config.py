@@ -13,13 +13,9 @@ load_dotenv(dotenv_path=env_path)
 
 def parse_allowed_user_ids(raw_str: str | None) -> list[int]:
     """Parses a comma-separated string of user IDs into a list of integers."""
-    ids = []
-    if raw_str:
-        for uid in raw_str.split(","):
-            uid_clean = uid.strip()
-            if uid_clean.isdigit():
-                ids.append(int(uid_clean))
-    return ids
+    if not raw_str:
+        return []
+    return [int(u.strip()) for u in raw_str.split(",") if u.strip().isdigit()]
 
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()

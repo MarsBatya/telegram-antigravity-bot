@@ -22,91 +22,13 @@ from app.core.storage import (
     _terminate_process_and_group,
     calculate_session_tokens as calculate_session_tokens,
 )
+from app.utils.bot_utils import make_progress_bar
 
 SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 DEFAULT_BRAIN_DIR = str(Path.home() / ".gemini" / "antigravity-cli" / "brain")
 DEFAULT_OAUTH_TOKEN_PATH = str(
     Path.home() / ".gemini" / "antigravity-cli" / "antigravity-oauth-token",
 )
-
-
-def load_persistent_sessions(
-    storage: SessionStorage,
-    file_path: str | None = None,
-) -> None:
-    """Loads active conversation mapping, workspaces, and chat settings
-    from persistent disk storage.
-    """
-    storage.load(file_path)
-
-
-def save_persistent_sessions(
-    storage: SessionStorage,
-    file_path: str | None = None,
-) -> None:
-    """Saves active conversation mapping, workspaces, and settings
-    to persistent disk storage atomically.
-    """
-    storage.save(file_path)
-
-
-def get_chat_setting(
-    chat_id: int,
-    key: str,
-    default: str | None = None,
-    *,
-    storage: SessionStorage,
-) -> str | None:
-    return storage.get_setting(chat_id, key, default)
-
-
-def set_chat_setting(
-    chat_id: int,
-    key: str,
-    value: str,
-    *,
-    storage: SessionStorage,
-) -> None:
-    storage.set_setting(chat_id, key, value)
-
-
-def get_chat_workspace(
-    chat_id: int,
-    *,
-    storage: SessionStorage,
-) -> str:
-    return storage.get_workspace(chat_id)
-
-
-def set_chat_workspace(
-    chat_id: int,
-    workspace_path: str,
-    *,
-    storage: SessionStorage,
-) -> None:
-    storage.set_workspace(chat_id, workspace_path)
-
-
-def get_chat_lock(
-    chat_id: int,
-    *,
-    storage: SessionStorage,
-) -> threading.Lock:
-    return storage.get_lock(chat_id)
-
-
-def get_token_usage(
-    chat_id: int,
-    *,
-    storage: SessionStorage,
-) -> dict[str, int]:
-    return storage.get_token_usage(chat_id)
-
-
-def make_ascii_bar(pct: float, length: int = 20) -> str:
-    filled = int(round(length * pct / 100))
-    filled = max(0, min(length, filled))
-    return "█" * filled + "░" * (length - filled)
 
 
 def parse_reset_time(iso_str: str) -> str:
@@ -199,7 +121,6 @@ def fetch_live_user_quota_summary(token_file: str | None = None) -> str:
                 disabled = bucket.get("disabled", False)
                 rem_frac = bucket.get("remainingFraction", 0.0)
                 pct = rem_frac * 100.0
-                bar = make_ascii_bar(pct)
                 reset_str = parse_reset_time(bucket.get("resetTime"))
                 b_desc = bucket.get("description", "")
 
@@ -208,7 +129,7 @@ def fetch_live_user_quota_summary(token_file: str | None = None) -> str:
                     output.append("    <code>[Disabled]</code>")
                     output.append(f"    <i>{b_desc}</i>\n")
                 else:
-                    output.append(f"    <code>[{bar}] {pct:.2f}%</code>")
+                    output.append(f"    <code>{make_progress_bar(pct, 20)}</code>")
                     output.append(f"    {pct:.0f}% remaining · {reset_str}\n")
 
         return "\n".join(output)
@@ -325,22 +246,6 @@ def fetch_bot_logs(lines_count: int = 30) -> str:
         f"ℹ️ System logger (journalctl) is not available on {platform_name}.\n"
         f"To inspect logs via /logs, write output to 'bot.log' in the project root."
     )
-
-
-def cancel_chat_process(
-    chat_id: int,
-    *,
-    storage: SessionStorage,
-) -> bool:
-    """Cancels the active agy child process and process group for a given chat_id."""
-    return storage.cancel_chat_process(chat_id)
-
-
-def cleanup_all_active_processes(
-    storage: SessionStorage,
-) -> None:
-    """Terminates all running subprocesses and their process groups across all chats."""
-    storage.cleanup_all_active_processes()
 
 
 def _parse_session_entry(folder: str) -> dict[str, str]:
@@ -553,7 +458,173 @@ def get_full_session_history_formatted(
         return []
 
 
-def format_tool_step_description(  # noqa: C901
+_TOOL_STEP_CONFIG: dict[str, tuple[tuple[str, ...], str, str, str, str, int, str]] = {
+    "run_command": (
+        ("CommandLine",),
+        "Running command: <code>{0}</code>",
+        "Running command...",
+        "Ran <code>{0}</code>",
+        "Ran command",
+        42,
+        "raw",
+    ),
+    "view_file": (
+        ("AbsolutePath", "TargetFile", "SearchPath"),
+        "Reading <code>{0}</code>",
+        "Reading file...",
+        "Read <code>{0}</code>",
+        "Read file",
+        60,
+        "file",
+    ),
+    "replace_file_content": (
+        ("TargetFile",),
+        "Editing <code>{0}</code>",
+        "Editing file...",
+        "Edited <code>{0}</code>",
+        "Edited file",
+        60,
+        "file",
+    ),
+    "multi_replace_file_content": (
+        ("TargetFile",),
+        "Editing <code>{0}</code>",
+        "Editing file...",
+        "Edited <code>{0}</code>",
+        "Edited file",
+        60,
+        "file",
+    ),
+    "write_to_file": (
+        ("TargetFile",),
+        "Writing <code>{0}</code>",
+        "Writing file...",
+        "Wrote <code>{0}</code>",
+        "Wrote file",
+        60,
+        "file",
+    ),
+    "list_dir": (
+        ("DirectoryPath",),
+        "Listing directory <code>{0}</code>",
+        "Listing directory...",
+        "Listed directory <code>{0}</code>",
+        "Listed directory",
+        60,
+        "dir",
+    ),
+    "grep_search": (
+        ("Query", "Pattern"),
+        "Searching for <code>{0}</code>",
+        "Searching codebase...",
+        "Searched <code>{0}</code>",
+        "Searched codebase",
+        32,
+        "plain",
+    ),
+    "find_by_name": (
+        ("Query", "Pattern"),
+        "Searching for <code>{0}</code>",
+        "Searching codebase...",
+        "Searched <code>{0}</code>",
+        "Searched codebase",
+        32,
+        "plain",
+    ),
+    "find_files": (
+        ("Query", "Pattern"),
+        "Searching for <code>{0}</code>",
+        "Searching codebase...",
+        "Searched <code>{0}</code>",
+        "Searched codebase",
+        32,
+        "plain",
+    ),
+    "read_url_content": (
+        ("Url",),
+        "Reading web page <code>{0}</code>",
+        "Reading web page...",
+        "Read web page <code>{0}</code>",
+        "Read web page",
+        35,
+        "plain",
+    ),
+    "read_browser_page": (
+        ("Url",),
+        "Reading web page <code>{0}</code>",
+        "Reading web page...",
+        "Read web page <code>{0}</code>",
+        "Read web page",
+        35,
+        "plain",
+    ),
+    "search_web": (
+        ("query",),
+        "Searching web: <code>{0}</code>",
+        "Searching web...",
+        "Searched web: <code>{0}</code>",
+        "Searched web",
+        32,
+        "plain",
+    ),
+    "call_mcp_tool": (
+        ("ToolName", "name"),
+        "Calling MCP tool <code>{0}</code>",
+        "Calling MCP tool...",
+        "Called MCP tool <code>{0}</code>",
+        "Called MCP tool",
+        40,
+        "plain",
+    ),
+    "invoke_subagent": (
+        ("Role", "TypeName"),
+        "Invoking subagent: <code>{0}</code>",
+        "Invoking subagent...",
+        "Subagent completed: <code>{0}</code>",
+        "Subagent completed",
+        40,
+        "plain",
+    ),
+    "generate_image": (
+        ("ImageName",),
+        "Generating image <code>{0}</code>",
+        "Generating image...",
+        "Generated image <code>{0}</code>",
+        "Generated image",
+        40,
+        "image",
+    ),
+}
+
+
+def _format_tool_param(
+    params: dict[str, Any],
+    keys: tuple[str, ...],
+    max_len: int,
+    kind: str,
+) -> str:
+    val = ""
+    for k in keys:
+        if k in params and params[k]:
+            val = str(params[k]).strip()
+            break
+    if not val:
+        return "image" if kind == "image" else ""
+    if kind == "file":
+        val = os.path.basename(val)
+    elif kind == "dir":
+        dname = os.path.basename(val.rstrip("/\\"))
+        val = f"{dname}/" if dname else ""
+    elif kind == "raw":
+        if len(val) > 45:
+            val = val[:42] + "..."
+    elif kind == "plain":
+        if len(val) > max_len + 3:
+            val = val[:max_len] + "..."
+    return val
+
+
+def format_tool_step_description(
     tool_name: str,
     params: dict[str, Any],
     done: bool = False,
@@ -565,160 +636,15 @@ def format_tool_step_description(  # noqa: C901
         if (done and duration_seconds is not None)
         else ""
     )
-
-    if tool_name == "run_command":
-        cmd = str(params.get("CommandLine") or "").strip()
-        cmd_disp = (cmd[:42] + "...") if len(cmd) > 45 else cmd
+    if tool_name in _TOOL_STEP_CONFIG:
+        keys, act_tmpl, act_def, done_tmpl, done_def, max_len, kind = _TOOL_STEP_CONFIG[
+            tool_name
+        ]
+        val = _format_tool_param(params, keys, max_len, kind)
         if done:
-            return (
-                f"Ran <code>{html.escape(cmd_disp)}</code>{dur_str}"
-                if cmd_disp
-                else f"Ran command{dur_str}"
-            )
-        return (
-            f"Running command: <code>{html.escape(cmd_disp)}</code>"
-            if cmd_disp
-            else "Running command..."
-        )
-
-    if tool_name == "view_file":
-        target = str(
-            params.get("AbsolutePath")
-            or params.get("TargetFile")
-            or params.get("SearchPath")
-            or "",
-        )
-        fname = os.path.basename(target) if target else ""
-        if done:
-            return (
-                f"Read <code>{html.escape(fname)}</code>{dur_str}"
-                if fname
-                else f"Read file{dur_str}"
-            )
-        return (
-            f"Reading <code>{html.escape(fname)}</code>" if fname else "Reading file..."
-        )
-
-    if tool_name in ["replace_file_content", "multi_replace_file_content"]:
-        target = str(params.get("TargetFile") or "")
-        fname = os.path.basename(target) if target else ""
-        if done:
-            return (
-                f"Edited <code>{html.escape(fname)}</code>{dur_str}"
-                if fname
-                else f"Edited file{dur_str}"
-            )
-        return (
-            f"Editing <code>{html.escape(fname)}</code>" if fname else "Editing file..."
-        )
-
-    if tool_name == "write_to_file":
-        target = str(params.get("TargetFile") or "")
-        fname = os.path.basename(target) if target else ""
-        if done:
-            return (
-                f"Wrote <code>{html.escape(fname)}</code>{dur_str}"
-                if fname
-                else f"Wrote file{dur_str}"
-            )
-        return (
-            f"Writing <code>{html.escape(fname)}</code>" if fname else "Writing file..."
-        )
-
-    if tool_name == "list_dir":
-        path = str(params.get("DirectoryPath") or "")
-        dname = os.path.basename(path.rstrip("/\\")) if path else ""
-        disp = f"{dname}/" if dname else ""
-        if done:
-            return (
-                f"Listed directory <code>{html.escape(disp)}</code>{dur_str}"
-                if disp
-                else f"Listed directory{dur_str}"
-            )
-        return (
-            f"Listing directory <code>{html.escape(disp)}</code>"
-            if disp
-            else "Listing directory..."
-        )
-
-    if tool_name in ["grep_search", "find_by_name", "find_files"]:
-        query = str(params.get("Query") or params.get("Pattern") or "")
-        q_disp = (query[:32] + "...") if len(query) > 35 else query
-        if done:
-            return (
-                f"Searched <code>{html.escape(q_disp)}</code>{dur_str}"
-                if q_disp
-                else f"Searched codebase{dur_str}"
-            )
-        return (
-            f"Searching for <code>{html.escape(q_disp)}</code>"
-            if q_disp
-            else "Searching codebase..."
-        )
-
-    if tool_name in ["read_url_content", "read_browser_page"]:
-        url = str(params.get("Url") or "")
-        u_disp = (url[:35] + "...") if len(url) > 38 else url
-        if done:
-            return (
-                f"Read web page <code>{html.escape(u_disp)}</code>{dur_str}"
-                if u_disp
-                else f"Read web page{dur_str}"
-            )
-        return (
-            f"Reading web page <code>{html.escape(u_disp)}</code>"
-            if u_disp
-            else "Reading web page..."
-        )
-
-    if tool_name == "search_web":
-        q = str(params.get("query") or "")
-        q_disp = (q[:32] + "...") if len(q) > 35 else q
-        if done:
-            return (
-                f"Searched web: <code>{html.escape(q_disp)}</code>{dur_str}"
-                if q_disp
-                else f"Searched web{dur_str}"
-            )
-        return (
-            f"Searching web: <code>{html.escape(q_disp)}</code>"
-            if q_disp
-            else "Searching web..."
-        )
-
-    if tool_name == "call_mcp_tool":
-        tname = str(params.get("ToolName") or params.get("name") or "")
-        if done:
-            return (
-                f"Called MCP tool <code>{html.escape(tname)}</code>{dur_str}"
-                if tname
-                else f"Called MCP tool{dur_str}"
-            )
-        return (
-            f"Calling MCP tool <code>{html.escape(tname)}</code>"
-            if tname
-            else "Calling MCP tool..."
-        )
-
-    if tool_name == "invoke_subagent":
-        role = str(params.get("Role") or params.get("TypeName") or "")
-        if done:
-            return (
-                f"Subagent completed: <code>{html.escape(role)}</code>{dur_str}"
-                if role
-                else f"Subagent completed{dur_str}"
-            )
-        return (
-            f"Invoking subagent: <code>{html.escape(role)}</code>"
-            if role
-            else "Invoking subagent..."
-        )
-
-    if tool_name == "generate_image":
-        iname = str(params.get("ImageName") or "image")
-        if done:
-            return f"Generated image <code>{html.escape(iname)}</code>{dur_str}"
-        return f"Generating image <code>{html.escape(iname)}</code>"
+            base = done_tmpl.format(html.escape(val)) if val else done_def
+            return f"{base}{dur_str}"
+        return act_tmpl.format(html.escape(val)) if val else act_def
 
     raw_action = str(params.get("toolAction") or params.get("toolSummary") or "")
     if raw_action:
@@ -1132,66 +1058,3 @@ def run_antigravity_stream(  # noqa: C901
         except Exception as e:
             target_storage.unregister_process(chat_id)
             return f"❌ <b>Failed to run Antigravity:</b> {str(e)}", {}, []
-
-
-def run_smash_stream(
-    prompt: str,
-    chat_id: int,
-    workspace_dir: str | None = None,
-    progress_callback: Callable[[str], None] | None = None,
-    *,
-    storage: SessionStorage,
-) -> tuple[str, dict[str, Any], list[str]]:
-    smash_prompt = (
-        "💥 SMASH MODE INSTRUCTION: Complete the following task with "
-        "maximum effort, thoroughness, and speed. Fix all bugs, resolve any "
-        "broken code/tests, build the project, and do not stop until "
-        "everything runs 100% cleanly:\n\n"
-        f"{prompt}"
-    )
-    return run_antigravity_stream(
-        smash_prompt,
-        chat_id,
-        workspace_dir,
-        progress_callback,
-        storage=storage,
-    )
-
-
-def resume_stream(
-    prompt: str,
-    chat_id: int,
-    workspace_dir: str | None = None,
-    progress_callback: Callable[[str], None] | None = None,
-    *,
-    storage: SessionStorage,
-) -> tuple[str, dict[str, Any], list[str]]:
-    resume_prompt = (
-        prompt
-        if prompt
-        else "Continue the work and context from the last unfinished point."
-    )
-    return run_antigravity_stream(
-        resume_prompt,
-        chat_id,
-        workspace_dir,
-        progress_callback,
-        storage=storage,
-    )
-
-
-def set_active_session(
-    chat_id: int,
-    conv_id: str,
-    *,
-    storage: SessionStorage,
-) -> None:
-    storage.set_active_session(chat_id, conv_id)
-
-
-def reset_session(
-    chat_id: int,
-    *,
-    storage: SessionStorage,
-) -> None:
-    storage.reset_session(chat_id)

@@ -85,9 +85,9 @@ def test_session_storage_chat_locks(tmp_path: os.PathLike[str]) -> None:
     test_file = os.path.join(tmp_path, "sessions_locks.json")
     storage = SessionStorage(file_path=test_file)
 
-    lock1 = storage.get_chat_lock(99)
-    lock2 = storage.get_chat_lock(99)
-    lock3 = storage.get_chat_lock(100)
+    lock1 = storage.get_lock(99)
+    lock2 = storage.get_lock(99)
+    lock3 = storage.get_lock(100)
 
     assert lock1 is lock2
     assert lock1 is not lock3
@@ -145,7 +145,7 @@ def test_session_storage_thread_safety(tmp_path: os.PathLike[str]) -> None:
 
     # Verify all 100 sessions were set and saved cleanly
     storage_reloaded = SessionStorage(file_path=test_file)
-    assert len(storage_reloaded.conversations) == 100
+    assert len(storage_reloaded.active_conversations) == 100
 
 
 def test_terminate_process_and_group() -> None:
@@ -220,7 +220,7 @@ def test_session_storage_cleanup_all_processes(tmp_path: os.PathLike[str]) -> No
     storage.cleanup_all_active_processes()
     mock_proc1.terminate.assert_called_once()
     mock_proc2.terminate.assert_not_called()
-    assert storage.processes == {}
+    assert storage.active_processes == {}
 
 
 def test_session_storage_boolean_session(tmp_path: os.PathLike[str]) -> None:

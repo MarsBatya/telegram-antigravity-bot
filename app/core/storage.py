@@ -112,66 +112,6 @@ class SessionStorage:
         self._state_lock: threading.Lock = threading.Lock()
         self.load(self.file_path)
 
-    @property
-    def conversations(self) -> dict[int, str | bool]:
-        with self._state_lock:
-            return self.active_conversations
-
-    @conversations.setter
-    def conversations(self, value: dict[int, str | bool]) -> None:
-        with self._state_lock:
-            self.active_conversations = value
-
-    @property
-    def workspaces(self) -> dict[int, str]:
-        with self._state_lock:
-            return self.active_workspaces
-
-    @workspaces.setter
-    def workspaces(self, value: dict[int, str]) -> None:
-        with self._state_lock:
-            self.active_workspaces = value
-
-    @property
-    def settings(self) -> dict[int, dict[str, str]]:
-        with self._state_lock:
-            return self.active_settings
-
-    @settings.setter
-    def settings(self, value: dict[int, dict[str, str]]) -> None:
-        with self._state_lock:
-            self.active_settings = value
-
-    @property
-    def token_usage(self) -> dict[int, dict[str, int]]:
-        with self._state_lock:
-            return self.chat_token_usage
-
-    @token_usage.setter
-    def token_usage(self, value: dict[int, dict[str, int]]) -> None:
-        with self._state_lock:
-            self.chat_token_usage = value
-
-    @property
-    def processes(self) -> dict[int, subprocess.Popen[Any]]:
-        with self._state_lock:
-            return self.active_processes
-
-    @processes.setter
-    def processes(self, value: dict[int, subprocess.Popen[Any]]) -> None:
-        with self._state_lock:
-            self.active_processes = value
-
-    @property
-    def locks(self) -> dict[int, threading.Lock]:
-        with self._state_lock:
-            return self.chat_locks
-
-    @locks.setter
-    def locks(self, value: dict[int, threading.Lock]) -> None:
-        with self._state_lock:
-            self.chat_locks = value
-
     def load(self, file_path: str | None = None) -> None:
         """Loads conversation mapping, workspaces, and chat settings
         from persistent storage.
@@ -286,9 +226,6 @@ class SessionStorage:
             if chat_id not in self.chat_locks:
                 self.chat_locks[chat_id] = threading.Lock()
             return self.chat_locks[chat_id]
-
-    def get_chat_lock(self, chat_id: int) -> threading.Lock:
-        return self.get_lock(chat_id)
 
     def register_process(self, chat_id: int, proc: subprocess.Popen[Any]) -> None:
         with self._state_lock:

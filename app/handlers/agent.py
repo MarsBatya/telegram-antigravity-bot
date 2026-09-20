@@ -12,12 +12,12 @@ from typing import Any
 
 from aiogram import Bot, F, Router
 from aiogram.filters import Command
-from aiogram.types import CallbackQuery, FSInputFile, Message
+from aiogram.types import CallbackQuery, FSInputFile, InlineKeyboardMarkup, Message
 from aiogram.utils.chat_action import ChatActionSender
 
 from app.core import config
 from app.core.storage import SessionStorage
-from app.runner import agent_runner
+from app.runner import stream_runner
 from app.ui.callbacks import NavigationCallback
 from app.ui.keyboards import (
     get_action_bar_keyboard,
@@ -49,7 +49,13 @@ async def execute_smash(
         )
         return
 
-    smash_prompt = args[1].strip()
+    smash_prompt = (
+        "💥 SMASH MODE INSTRUCTION: Complete the following task with "
+        "maximum effort, thoroughness, and speed. Fix all bugs, resolve any "
+        "broken code/tests, build the project, and do not stop until "
+        "everything runs 100% cleanly:\n\n"
+        f"{args[1].strip()}"
+    )
     status_text = (
         "💥 <b>SMASH MODE ACTIVATED!</b>\n"
         "🔨 <i>AI is smashing bugs and executing complete fixes...</i>"
@@ -59,7 +65,7 @@ async def execute_smash(
         chat_id=message.chat.id,
         prompt=smash_prompt,
         status_text=status_text,
-        runner_func=agent_runner.run_smash_mode,
+        runner_func=stream_runner.run_antigravity_stream,
         reply_to_message_id=message.message_id,
         session_storage=session_storage,
     )
@@ -129,7 +135,7 @@ async def handle_cancel_callback(
     if callback.message is None:
         return
     chat_id = callback.message.chat.id
-    if agent_runner.cancel_chat_process(chat_id, storage=session_storage):
+    if session_storage.cancel_chat_process(chat_id):
         await callback.answer("Process cancelled!")
         with contextlib.suppress(Exception):
             await callback.message.edit_text(
@@ -227,7 +233,7 @@ async def process_agent_prompt(
         chat_id=message.chat.id,
         prompt=prompt,
         status_text=status_text,
-        runner_func=agent_runner.run_antigravity_agent,
+        runner_func=stream_runner.run_antigravity_stream,
         reply_to_message_id=message.message_id,
         session_storage=session_storage,
     )
@@ -260,7 +266,77 @@ async def _send_generated_files(
                 print(f"[ERROR] Auto-send file failed: {e}")
 
 
-async def process_custom_agent_prompt(  # noqa: C901
+def _build_final_output(
+    response: str,
+    turn_usage: dict[str, Any] | None,
+    cur_model: str,
+    cur_effort: str,
+    user_ws: str,
+) -> str:
+    formatted_response = formatter.markdown_to_telegram_html(response)
+    header_card = formatter.format_response_header(cur_model, cur_effort, user_ws)
+    steps = turn_usage.get("steps", []) if turn_usage else []
+    steps_badge = formatter.format_execution_steps(steps)
+    final_output = header_card + steps_badge + formatted_response
+
+    if turn_usage and turn_usage.get("total_tokens"):
+        tot = turn_usage.get("total_tokens", 0)
+        inp = turn_usage.get("input_tokens", 0)
+        out = turn_usage.get("output_tokens", 0)
+        thk = turn_usage.get("thinking_tokens", 0)
+        cac = turn_usage.get("cache_read_tokens", 0)
+        usage_badge = (
+            f"\n\n───────────────\n"
+            f"📊 <b>Token Used:</b> {tot:,} <i>(In: {inp:,} | Out: {out:,} "
+            f"| Think: {thk:,} | Cache: {cac:,})</i>"
+        )
+        final_output += usage_badge
+    return final_output
+
+
+def _build_runner_kwargs(
+    runner_func: Callable[..., Any],
+    progress_callback: Callable[[str], None],
+    storage: SessionStorage,
+) -> dict[str, Any]:
+    sig = inspect.signature(runner_func)
+    call_kwargs: dict[str, Any] = {"progress_callback": progress_callback}
+    if "storage" in sig.parameters or any(
+        p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+    ):
+        call_kwargs["storage"] = storage
+    return call_kwargs
+
+
+async def _send_progress_edit(
+    bot: Bot,
+    chat_id: int,
+    message_id: int,
+    text: str,
+    reply_markup: InlineKeyboardMarkup,
+) -> None:
+    if len(text) > 3800:
+        text = text[:3700] + "\n<i>(truncated)</i>"
+    try:
+        await bot.edit_message_text(
+            text=text,
+            chat_id=chat_id,
+            message_id=message_id,
+            parse_mode="HTML",
+            reply_markup=reply_markup,
+        )
+    except Exception:
+        with contextlib.suppress(Exception):
+            await bot.edit_message_text(
+                text=re.sub(r"<[^>]+>", "", text),
+                chat_id=chat_id,
+                message_id=message_id,
+                parse_mode=None,
+                reply_markup=reply_markup,
+            )
+
+
+async def process_custom_agent_prompt(
     bot: Bot,
     chat_id: int,
     prompt: str,
@@ -283,93 +359,35 @@ async def process_custom_agent_prompt(  # noqa: C901
     except Exception as e:
         print(f"[WARNING] Could not send initial status message: {e}")
 
-    storage = session_storage
-    user_ws = storage.get_workspace(chat_id)
-    cur_model = storage.get_setting(
-        chat_id,
-        "model",
-        config.DEFAULT_MODEL,
-    )
-    cur_effort = storage.get_setting(
-        chat_id,
-        "effort",
-        config.DEFAULT_EFFORT,
-    )
+    user_ws = session_storage.get_workspace(chat_id)
+    cur_model = session_storage.get_setting(chat_id, "model", config.DEFAULT_MODEL)
+    cur_effort = session_storage.get_setting(chat_id, "effort", config.DEFAULT_EFFORT)
 
-    async def _worker() -> None:  # noqa: C901
+    async def _worker() -> None:
         loop = asyncio.get_running_loop()
-        last_edit_time = 0.0
-        last_sent_text = ""
-        latest_text = ""
-        is_editing = False
         is_finished = False
 
         def sync_progress_callback(text: str) -> None:
-            nonlocal latest_text
             if not status_msg or is_finished:
                 return
-            latest_text = text
-            asyncio.run_coroutine_threadsafe(_trigger_edit(), loop)
-
-        async def _trigger_edit() -> None:
-            nonlocal is_editing, last_sent_text, last_edit_time
-            if is_editing or is_finished:
-                return
-            is_editing = True
-            try:
-                while not is_finished and latest_text and latest_text != last_sent_text:
-                    now = time.time()
-                    elapsed = now - last_edit_time
-                    if elapsed < 1.0:
-                        await asyncio.sleep(1.0 - elapsed)
-                    if is_finished:
-                        break
-
-                    text_to_send = latest_text
-                    if text_to_send == last_sent_text:
-                        break
-
-                    # Enforce strict length under Telegram's 4096 character limit
-                    if len(text_to_send) > 3800:
-                        text_to_send = text_to_send[:3700] + "\n<i>(truncated)</i>"
-
-                    last_sent_text = text_to_send
-                    last_edit_time = time.time()
-
-                    try:
-                        await bot.edit_message_text(
-                            text=text_to_send,
-                            chat_id=chat_id,
-                            message_id=status_msg.message_id,
-                            parse_mode="HTML",
-                            reply_markup=cancel_markup,
-                        )
-                    except Exception:
-                        if is_finished:
-                            break
-                        with contextlib.suppress(Exception):
-                            await bot.edit_message_text(
-                                text=re.sub(r"<[^>]+>", "", text_to_send),
-                                chat_id=chat_id,
-                                message_id=status_msg.message_id,
-                                parse_mode=None,
-                                reply_markup=cancel_markup,
-                            )
-            finally:
-                is_editing = False
+            asyncio.run_coroutine_threadsafe(
+                _send_progress_edit(
+                    bot,
+                    chat_id,
+                    status_msg.message_id,
+                    text,
+                    cancel_markup,
+                ),
+                loop,
+            )
 
         try:
+            call_kwargs = _build_runner_kwargs(
+                runner_func,
+                sync_progress_callback,
+                session_storage,
+            )
             async with ChatActionSender.typing(chat_id=chat_id, bot=bot, interval=4.0):
-                sig = inspect.signature(runner_func)
-                call_kwargs: dict[str, Any] = {
-                    "progress_callback": sync_progress_callback,
-                }
-                if "storage" in sig.parameters or any(
-                    p.kind == inspect.Parameter.VAR_KEYWORD
-                    for p in sig.parameters.values()
-                ):
-                    call_kwargs["storage"] = storage
-
                 response, turn_usage, generated_files = await asyncio.to_thread(
                     runner_func,
                     prompt,
@@ -386,30 +404,13 @@ async def process_custom_agent_prompt(  # noqa: C901
                         message_id=status_msg.message_id,
                     )
 
-            formatted_response = formatter.markdown_to_telegram_html(response)
-            header_card = formatter.format_response_header(
+            final_output = _build_final_output(
+                response,
+                turn_usage,
                 cur_model,
                 cur_effort,
                 user_ws,
             )
-            steps_badge = formatter.format_execution_steps(
-                turn_usage.get("steps", []) if turn_usage else [],
-            )
-
-            final_output = header_card + steps_badge + formatted_response
-            if turn_usage and turn_usage.get("total_tokens"):
-                tot = turn_usage.get("total_tokens", 0)
-                inp = turn_usage.get("input_tokens", 0)
-                out = turn_usage.get("output_tokens", 0)
-                thk = turn_usage.get("thinking_tokens", 0)
-                cac = turn_usage.get("cache_read_tokens", 0)
-                usage_badge = (
-                    f"\n\n───────────────\n"
-                    f"📊 <b>Token Used:</b> {tot:,} <i>(In: {inp:,} | Out: {out:,} "
-                    f"| Think: {thk:,} | Cache: {cac:,})</i>"
-                )
-                final_output += usage_badge
-
             action_bar = get_action_bar_keyboard()
             await send_long_message(bot, chat_id, final_output, reply_markup=action_bar)
 
