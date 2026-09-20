@@ -2,6 +2,7 @@ import contextlib
 import datetime
 import html
 import os
+import sys
 
 from aiogram import Bot, F, Router
 from aiogram.filters import Command
@@ -403,8 +404,9 @@ async def render_file_explorer_message(
     else:
         info_line = f"📊 <b>{total_items} items total</b>\n\n"
 
+    platform_desc = "Windows" if sys.platform == "win32" else "Server"
     text = (
-        f"🌳 <b>Interactive File Explorer (VPS)</b>\n\n"
+        f"🌳 <b>Interactive File Explorer ({platform_desc})</b>\n\n"
         f"📂 <b>Current Path:</b>\n<code>{html.escape(norm_path)}</code>\n\n"
         f"{info_line}"
         f"Click a folder to browse, or tap a file to view and upload to chat:"
@@ -450,8 +452,9 @@ async def render_file_explorer_callback(
     else:
         info_line = f"📊 <b>{total_items} items total</b>\n\n"
 
+    platform_desc = "Windows" if sys.platform == "win32" else "Server"
     text = (
-        f"🌳 <b>Interactive File Explorer (VPS)</b>\n\n"
+        f"🌳 <b>Interactive File Explorer ({platform_desc})</b>\n\n"
         f"📂 <b>Current Path:</b>\n<code>{html.escape(norm_path)}</code>\n\n"
         f"{info_line}"
         f"Click a folder to browse, or tap a file to view and upload to chat:"

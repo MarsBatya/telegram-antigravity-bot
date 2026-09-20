@@ -1,5 +1,6 @@
 import os
 import shutil
+import sys
 import tempfile
 from pathlib import Path
 
@@ -59,14 +60,29 @@ def _get_default_agy_path() -> str:
     which = shutil.which("agy")
     if which:
         return which
-    user_bin = os.path.expanduser("~/.local/bin/agy")
+
+    if sys.platform == "win32":
+        candidates = [
+            str(Path.home() / "AppData" / "Roaming" / "npm" / "agy.cmd"),
+            str(Path.home() / "AppData" / "Roaming" / "npm" / "agy.exe"),
+            str(Path.home() / "AppData" / "Local" / "Programs" / "agy" / "agy.exe"),
+            str(Path.home() / ".local" / "bin" / "agy.exe"),
+            str(Path.home() / ".local" / "bin" / "agy.cmd"),
+            str(Path.home() / ".local" / "bin" / "agy"),
+        ]
+        for cand in candidates:
+            if os.path.exists(cand):
+                return cand
+        return "agy.cmd"
+
+    user_bin = str(Path.home() / ".local" / "bin" / "agy")
     return user_bin if os.path.exists(user_bin) else "/root/.local/bin/agy"
 
 
 AGY_PATH = _get_default_agy_path()
 DEFAULT_WORKSPACE = os.getenv(
     "DEFAULT_WORKSPACE",
-    os.path.expanduser("~/my-project"),
+    str(Path.home() / "my-project"),
 ).strip()
 
 DEFAULT_MODEL = "gemini-3.6-flash-high"
@@ -75,11 +91,11 @@ DEFAULT_MODE = "accept-edits"
 
 BRAIN_DIR = os.getenv(
     "BRAIN_DIR",
-    os.path.expanduser("~/.gemini/antigravity-cli/brain"),
+    str(Path.home() / ".gemini" / "antigravity-cli" / "brain"),
 ).strip()
 OAUTH_TOKEN_PATH = os.getenv(
     "OAUTH_TOKEN_PATH",
-    os.path.expanduser("~/.gemini/antigravity-cli/antigravity-oauth-token"),
+    str(Path.home() / ".gemini" / "antigravity-cli" / "antigravity-oauth-token"),
 ).strip()
 CLOUDCODE_BASE_URL = (
     os.getenv(
@@ -95,11 +111,11 @@ SESSION_FILE = os.getenv(
 ).strip()
 TEMP_UPLOAD_DIR = os.getenv(
     "TEMP_UPLOAD_DIR",
-    os.path.join(tempfile.gettempdir(), "antigravity_uploads"),
+    str(Path(tempfile.gettempdir()) / "antigravity_uploads"),
 ).strip()
 
 try:
-    os.makedirs(DEFAULT_WORKSPACE, exist_ok=True)
+    Path(DEFAULT_WORKSPACE).mkdir(parents=True, exist_ok=True)
 except OSError:
     pass
 

@@ -231,3 +231,46 @@ def test_session_storage_boolean_session(tmp_path: os.PathLike[str]) -> None:
     assert storage.get_active_session(888) is True
     usage = storage.get_token_usage(888)
     assert usage["session_tokens"] == 0
+
+
+def test_session_storage_save_retry_on_permission_error(
+    tmp_path: os.PathLike[str],
+) -> None:
+    from unittest.mock import patch
+
+    test_file = os.path.join(tmp_path, "sessions_retry.json")
+    storage = SessionStorage(file_path=test_file)
+
+    attempts = 0
+    orig_replace = os.replace
+
+    def mock_replace(src: str, dst: str) -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise PermissionError("Access is denied (transient Windows lock)")
+        orig_replace(src, dst)
+
+    with patch("os.replace", side_effect=mock_replace):
+        storage.set_active_session(123, "conv-retry")
+
+    assert attempts == 2
+    assert os.path.exists(test_file)
+    assert storage.get_active_session(123) == "conv-retry"
+
+
+def test_session_storage_save_failure_cleans_temp_file(
+    tmp_path: os.PathLike[str],
+) -> None:
+    from unittest.mock import patch
+
+    test_file = os.path.join(tmp_path, "sessions_fail.json")
+    storage = SessionStorage(file_path=test_file)
+
+    with patch("os.replace", side_effect=PermissionError("Persistent lock")):
+        storage.set_active_session(456, "conv-fail")
+
+    # Verify no dangling .tmp files remain in directory
+    remaining_files = os.listdir(tmp_path)
+    tmp_files = [f for f in remaining_files if ".tmp." in f]
+    assert len(tmp_files) == 0

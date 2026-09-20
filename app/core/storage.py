@@ -1,8 +1,10 @@
 import contextlib
 import json
 import os
+from pathlib import Path
 import signal
 import subprocess
+import sys
 import threading
 import time
 from typing import Any
@@ -12,28 +14,52 @@ from app.core import config
 SESSION_FILE: str = getattr(
     config,
     "SESSION_FILE",
-    os.path.join(
-        os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")),
-        "sessions.json",
-    ),
+    str(Path(__file__).resolve().parent.parent.parent / "sessions.json"),
 )
 
 
 def _terminate_process_and_group(proc: subprocess.Popen[Any]) -> None:
-    """Terminates or kills a subprocess and its entire process group safely."""
+    """Terminates or kills a subprocess and its entire process group safely
+    across both POSIX (Linux/macOS) and Windows.
+    """
     pid = getattr(proc, "pid", None)
+    if sys.platform == "win32":
+        if isinstance(pid, int):
+            with contextlib.suppress(Exception):
+                import psutil
+
+                parent = psutil.Process(pid)
+                for child in parent.children(recursive=True):
+                    with contextlib.suppress(Exception):
+                        child.kill()
+                parent.kill()
+            with contextlib.suppress(Exception):
+                subprocess.run(  # noqa: S603
+                    ["taskkill", "/F", "/T", "/PID", str(pid)],  # noqa: S607
+                    capture_output=True,
+                    check=False,
+                )
+        with contextlib.suppress(Exception):
+            proc.kill()
+        return
+
+    # POSIX systems (Linux, macOS, BSD)
     if isinstance(pid, int):
         with contextlib.suppress(Exception):
-            pgid = os.getpgid(pid)
-            os.killpg(pgid, signal.SIGTERM)
+            if hasattr(os, "getpgid") and hasattr(os, "killpg"):
+                pgid = os.getpgid(pid)
+                sig_term = getattr(signal, "SIGTERM", 15)
+                os.killpg(pgid, sig_term)
     with contextlib.suppress(Exception):
         proc.terminate()
     time.sleep(0.3)
     if proc.poll() is None:
         if isinstance(pid, int):
             with contextlib.suppress(Exception):
-                pgid = os.getpgid(pid)
-                os.killpg(pgid, signal.SIGKILL)
+                if hasattr(os, "getpgid") and hasattr(os, "killpg"):
+                    pgid = os.getpgid(pid)
+                    sig_kill = getattr(signal, "SIGKILL", 9)
+                    os.killpg(pgid, sig_kill)
         with contextlib.suppress(Exception):
             proc.kill()
 
@@ -42,19 +68,18 @@ def calculate_session_tokens(conv_id: str, brain_dir: str | None = None) -> int:
     """Calculates total tokens accumulated in a conversation session
     from transcript.jsonl.
     """
-    target_brain = brain_dir or getattr(
-        config,
-        "BRAIN_DIR",
-        os.path.expanduser("~/.gemini/antigravity-cli/brain"),
+    target_brain = Path(
+        brain_dir
+        or getattr(
+            config,
+            "BRAIN_DIR",
+            str(Path.home() / ".gemini" / "antigravity-cli" / "brain"),
+        ),
     )
-    transcript_file = os.path.join(
-        target_brain,
-        conv_id,
-        ".system_generated",
-        "logs",
-        "transcript.jsonl",
+    transcript_file = (
+        target_brain / conv_id / ".system_generated" / "logs" / "transcript.jsonl"
     )
-    if not os.path.exists(transcript_file):
+    if not transcript_file.exists():
         return 0
 
     total_tokens = 0
@@ -188,22 +213,38 @@ class SessionStorage:
                 workspaces_copy = dict(self.active_workspaces)
                 settings_copy = {k: dict(v) for k, v in self.active_settings.items()}
 
+            temp_file: Path | None = None
             try:
-                target_dir = os.path.dirname(os.path.abspath(target_file))
-                os.makedirs(target_dir, exist_ok=True)
+                target_path = Path(target_file).resolve()
+                target_path.parent.mkdir(parents=True, exist_ok=True)
                 data = {
                     "conversations": {str(k): v for k, v in convs_copy.items()},
                     "workspaces": {str(k): v for k, v in workspaces_copy.items()},
                     "settings": {str(k): v for k, v in settings_copy.items()},
                 }
-                temp_file = target_file + f".tmp.{os.getpid()}.{threading.get_ident()}"
+                temp_file = target_path.with_name(
+                    f"{target_path.name}.tmp.{os.getpid()}.{threading.get_ident()}",
+                )
                 with open(temp_file, "w", encoding="utf-8") as f:
                     json.dump(data, f, indent=2)
                     f.flush()
                     os.fsync(f.fileno())
-                os.replace(temp_file, target_file)
+
+                # Retry loop handling transient file locks
+                # (common on Windows antivirus / indexer)
+                for attempt in range(3):
+                    try:
+                        os.replace(temp_file, target_path)
+                        break
+                    except PermissionError:
+                        if attempt == 2:
+                            raise
+                        time.sleep(0.05)
             except Exception as e:
                 print(f"[ERROR] Saving sessions.json: {e}")
+                if temp_file is not None:
+                    with contextlib.suppress(OSError):
+                        temp_file.unlink(missing_ok=True)
 
     def get_setting(
         self,

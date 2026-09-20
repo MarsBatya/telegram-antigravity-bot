@@ -596,8 +596,9 @@ def test_cancel_chat_process_kills_process_group(storage: SessionStorage) -> Non
     storage.register_process(333, mock_proc)
 
     with (
-        patch("os.getpgid", return_value=4321) as mock_getpgid,
-        patch("os.killpg") as mock_killpg,
+        patch("sys.platform", "linux"),
+        patch("os.getpgid", return_value=4321, create=True) as mock_getpgid,
+        patch("os.killpg", create=True) as mock_killpg,
     ):
         assert stream_runner.cancel_chat_process(333, storage=storage) is True
         mock_getpgid.assert_called_with(4321)
@@ -605,6 +606,30 @@ def test_cancel_chat_process_kills_process_group(storage: SessionStorage) -> Non
         mock_proc.terminate.assert_called_once()
         mock_proc.kill.assert_called_once()
         assert storage.get_process(333) is None
+
+
+def test_cancel_chat_process_windows(storage: SessionStorage) -> None:
+    mock_proc = MagicMock()
+    mock_proc.pid = 7777
+    mock_proc.poll.return_value = None
+
+    storage.register_process(555, mock_proc)
+
+    with (
+        patch("sys.platform", "win32"),
+        patch("subprocess.run") as mock_subproc,
+        patch("psutil.Process") as mock_psutil_proc,
+    ):
+        child_mock = MagicMock()
+        mock_psutil_proc.return_value.children.return_value = [child_mock]
+
+        assert stream_runner.cancel_chat_process(555, storage=storage) is True
+        mock_psutil_proc.assert_called_with(7777)
+        child_mock.kill.assert_called_once()
+        mock_psutil_proc.return_value.kill.assert_called_once()
+        mock_subproc.assert_called_once()
+        mock_proc.kill.assert_called_once()
+        assert storage.get_process(555) is None
 
 
 def test_cleanup_all_active_processes(storage: SessionStorage) -> None:
@@ -619,7 +644,11 @@ def test_cleanup_all_active_processes(storage: SessionStorage) -> None:
     storage.register_process(1, proc1)
     storage.register_process(2, proc2)
 
-    with patch("os.getpgid", return_value=1001), patch("os.killpg"):
+    with (
+        patch("sys.platform", "linux"),
+        patch("os.getpgid", return_value=1001, create=True),
+        patch("os.killpg", create=True),
+    ):
         stream_runner.cleanup_all_active_processes(storage=storage)
         proc1.terminate.assert_called_once()
         proc2.terminate.assert_not_called()
@@ -1014,6 +1043,8 @@ def test_persona_prompt_injected_only_on_first_turn(
                 assert "STYLE GUIDELINES" in turn1_prompt
                 assert "First prompt" in turn1_prompt
                 assert storage.get_active_session(chat_id) == "conv-test-123"
+                assert kwargs.get("encoding") == "utf-8"
+                assert kwargs.get("errors") == "replace"
 
                 # Turn 2: Follow-up in existing conversation
                 mock_process.stdout.readline.side_effect = [

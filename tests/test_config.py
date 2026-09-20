@@ -61,9 +61,28 @@ def test_get_default_agy_path():
     with (
         patch.dict("os.environ", {"AGY_PATH": ""}),
         patch("shutil.which", return_value=None),
+        patch("sys.platform", "linux"),
         patch("os.path.exists", return_value=True),
     ):
         assert ".local/bin/agy" in config._get_default_agy_path()
+
+
+def test_get_default_agy_path_windows():
+    with (
+        patch.dict("os.environ", {"AGY_PATH": ""}),
+        patch("shutil.which", return_value=None),
+        patch("sys.platform", "win32"),
+        patch("os.path.exists", return_value=False),
+    ):
+        assert config._get_default_agy_path() == "agy.cmd"
+
+    with (
+        patch.dict("os.environ", {"AGY_PATH": ""}),
+        patch("shutil.which", return_value=None),
+        patch("sys.platform", "win32"),
+        patch("os.path.exists", return_value=True),
+    ):
+        assert config._get_default_agy_path().endswith((".cmd", ".exe", "agy"))
 
 
 def test_default_paths_portable():

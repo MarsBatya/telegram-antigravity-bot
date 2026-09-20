@@ -1,4 +1,5 @@
 import os
+import sys
 from typing import Any
 
 from aiogram.types import (
@@ -127,6 +128,37 @@ def get_workspace_keyboard(
     return builder.as_markup()
 
 
+def _build_windows_drive_buttons(
+    norm_path: str,
+    path_encoder: Any,
+) -> list[InlineKeyboardButton]:
+    if sys.platform != "win32":
+        return []
+
+    import string
+
+    available_drives = [
+        f"{letter}:\\"
+        for letter in string.ascii_uppercase
+        if os.path.exists(f"{letter}:\\")
+    ]
+    if len(available_drives) <= 1:
+        return []
+
+    norm_lower = os.path.abspath(norm_path).lower()
+    return [
+        InlineKeyboardButton(
+            text=f"💽 {drv[:2]}",
+            callback_data=BrowseDirCallback(
+                token=path_encoder(drv),
+                page=1,
+            ).pack(),
+        )
+        for drv in available_drives
+        if os.path.abspath(drv).lower() != norm_lower
+    ][:4]
+
+
 def get_tree_keyboard(
     norm_path: str,
     cur_ws: str,
@@ -146,6 +178,11 @@ def get_tree_keyboard(
                 callback_data=BrowseDirCallback(token=up_token, page=1).pack(),
             ),
         )
+
+    # Windows drive selector when multiple drives exist
+    drive_buttons = _build_windows_drive_buttons(norm_path, path_encoder)
+    if drive_buttons:
+        builder.row(*drive_buttons)
 
     if os.path.abspath(norm_path) != os.path.abspath(cur_ws):
         set_token = path_encoder(norm_path)

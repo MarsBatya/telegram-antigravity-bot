@@ -4,9 +4,11 @@ from datetime import datetime, timezone
 import html
 import json
 import os
+from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import threading
 import time
 from typing import Any
@@ -22,6 +24,10 @@ from app.core.storage import (
 )
 
 SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+DEFAULT_BRAIN_DIR = str(Path.home() / ".gemini" / "antigravity-cli" / "brain")
+DEFAULT_OAUTH_TOKEN_PATH = str(
+    Path.home() / ".gemini" / "antigravity-cli" / "antigravity-oauth-token",
+)
 
 
 def load_persistent_sessions(
@@ -133,7 +139,7 @@ def fetch_live_user_quota_summary(token_file: str | None = None) -> str:
     target_token_file = token_file or getattr(
         config,
         "OAUTH_TOKEN_PATH",
-        os.path.expanduser("~/.gemini/antigravity-cli/antigravity-oauth-token"),
+        DEFAULT_OAUTH_TOKEN_PATH,
     )
     if not os.path.exists(target_token_file):
         return "⚠️ <b>OAuth token file not found on server.</b>"
@@ -217,7 +223,7 @@ def fetch_available_models_live(
     target_token_file = token_file or getattr(
         config,
         "OAUTH_TOKEN_PATH",
-        os.path.expanduser("~/.gemini/antigravity-cli/antigravity-oauth-token"),
+        DEFAULT_OAUTH_TOKEN_PATH,
     )
     if not os.path.exists(target_token_file):
         return []
@@ -273,27 +279,52 @@ def fetch_available_models_live(
 
 
 def fetch_bot_logs(lines_count: int = 30) -> str:
-    """Fetches systemd service logs for antigravity-bot"""
-    journalctl_bin = shutil.which("journalctl") or "/usr/bin/journalctl"
-    try:
-        res = subprocess.run(  # noqa: S603
-            [
-                journalctl_bin,
-                "-u",
-                "antigravity-bot",
-                "-n",
-                str(lines_count),
-                "--no-pager",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if res.stdout:
-            return res.stdout
-        return "📜 No recent logs."
-    except Exception as e:
-        return f"❌ Failed to fetch logs: {e}"
+    """Fetches systemd service logs or local file logs for antigravity-bot."""
+    journalctl_bin = shutil.which("journalctl") or (
+        "/usr/bin/journalctl" if sys.platform != "win32" else None
+    )
+    if journalctl_bin:
+        try:
+            res = subprocess.run(  # noqa: S603
+                [
+                    journalctl_bin,
+                    "-u",
+                    "antigravity-bot",
+                    "-n",
+                    str(lines_count),
+                    "--no-pager",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if res.stdout:
+                return res.stdout
+            return "📜 No recent logs."
+        except Exception as e:
+            if sys.platform != "win32":
+                return f"❌ Failed to fetch logs: {e}"
+
+    # Fallback: check project root log files
+    log_candidates = [
+        Path(config.PROJECT_ROOT) / "bot.log",
+        Path(config.PROJECT_ROOT) / "app.log",
+    ]
+    for log_path in log_candidates:
+        if log_path.exists():
+            try:
+                with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+                    lines = f.readlines()
+                    tail = lines[-lines_count:]
+                    return "".join(tail) if tail else "📜 Log file is empty."
+            except Exception as e:
+                return f"❌ Failed to read {log_path.name}: {e}"
+
+    platform_name = "Windows" if sys.platform == "win32" else "Non-systemd"
+    return (
+        f"ℹ️ System logger (journalctl) is not available on {platform_name}.\n"
+        f"To inspect logs via /logs, write output to 'bot.log' in the project root."
+    )
 
 
 def cancel_chat_process(
@@ -365,7 +396,7 @@ def get_recent_sessions(
     target_brain = brain_dir or getattr(
         config,
         "BRAIN_DIR",
-        os.path.expanduser("~/.gemini/antigravity-cli/brain"),
+        DEFAULT_BRAIN_DIR,
     )
     if not os.path.exists(target_brain):
         return []
@@ -392,7 +423,7 @@ def rename_session(conv_id: str, new_name: str, brain_dir: str | None = None) ->
     target_brain = brain_dir or getattr(
         config,
         "BRAIN_DIR",
-        os.path.expanduser("~/.gemini/antigravity-cli/brain"),
+        DEFAULT_BRAIN_DIR,
     )
     transcript_file = os.path.join(
         target_brain,
@@ -447,7 +478,7 @@ def delete_session(conv_id: str, brain_dir: str | None = None) -> bool:
     target_brain = brain_dir or getattr(
         config,
         "BRAIN_DIR",
-        os.path.expanduser("~/.gemini/antigravity-cli/brain"),
+        DEFAULT_BRAIN_DIR,
     )
     folder = os.path.join(target_brain, conv_id)
     if os.path.exists(folder):
@@ -469,7 +500,7 @@ def get_full_session_history_formatted(
     target_brain = brain_dir or getattr(
         config,
         "BRAIN_DIR",
-        os.path.expanduser("~/.gemini/antigravity-cli/brain"),
+        DEFAULT_BRAIN_DIR,
     )
     transcript_file = os.path.join(
         target_brain,
@@ -867,14 +898,15 @@ def run_antigravity_stream(  # noqa: C901
     """Runs agy with stream-json propagating --model, --effort, and --mode
     flags with animated spinners.
     """
-    if not os.path.exists(config.AGY_PATH):
+    agy_exec = shutil.which(config.AGY_PATH) or config.AGY_PATH
+    if not os.path.exists(agy_exec) and not shutil.which(config.AGY_PATH):
         return f"❌ agy executable not found at <code>{config.AGY_PATH}</code>", {}, []
 
     target_storage = storage
     lock = target_storage.get_lock(chat_id)
     with lock:
         cwd = workspace_dir or target_storage.get_workspace(chat_id)
-        os.makedirs(cwd, exist_ok=True)
+        Path(cwd).mkdir(parents=True, exist_ok=True)
 
         model = (
             target_storage.get_setting(chat_id, "model", config.DEFAULT_MODEL)
@@ -909,7 +941,7 @@ def run_antigravity_stream(  # noqa: C901
         augmented_prompt = f"{prompt_prefix}\n\n{prompt}"
 
         cmd = [
-            config.AGY_PATH,
+            agy_exec,
             "-p",
             augmented_prompt,
             "--add-dir",
@@ -931,14 +963,19 @@ def run_antigravity_stream(  # noqa: C901
             cmd.append("-c")
 
         try:
+            is_win = sys.platform == "win32"
+            use_shell = is_win and agy_exec.lower().endswith((".cmd", ".bat"))
             process = subprocess.Popen(  # noqa: S603
                 cmd,
                 cwd=cwd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 bufsize=1,
                 start_new_session=True,
+                shell=use_shell,
             )
             target_storage.register_process(chat_id, process)
 

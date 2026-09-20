@@ -1,4 +1,6 @@
 import html
+import os
+from pathlib import Path
 
 import psutil
 from aiogram import Bot, F, Router
@@ -116,9 +118,14 @@ async def send_status(
     try:
         cpu_pct = psutil.cpu_percent(interval=0.8)
         ram = psutil.virtual_memory()
-        disk = psutil.disk_usage("/")
-        usage = session_storage.get_token_usage(chat_id)
         user_ws = session_storage.get_workspace(chat_id)
+        target_disk = (
+            user_ws
+            if (user_ws and os.path.exists(user_ws))
+            else (str(Path.cwd().anchor) if Path.cwd().anchor else "/")
+        )
+        disk = psutil.disk_usage(target_disk)
+        usage = session_storage.get_token_usage(chat_id)
         cur_model = session_storage.get_setting(
             chat_id,
             "model",
