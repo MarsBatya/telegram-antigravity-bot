@@ -15,17 +15,17 @@ from aiogram.filters import Command
 from aiogram.types import CallbackQuery, FSInputFile, Message
 from aiogram.utils.chat_action import ChatActionSender
 
-import agent_runner
-from bot_utils import reply_safe, send_long_message
-from callbacks import NavigationCallback
-import config
-import formatter
-from keyboards import (
+from app.core import config
+from app.core.storage import SessionStorage
+from app.runner import agent_runner
+from app.ui.callbacks import NavigationCallback
+from app.ui.keyboards import (
     get_action_bar_keyboard,
     get_cancel_keyboard,
     get_main_reply_keyboard,
 )
-from storage import SessionStorage
+from app.utils import formatter
+from app.utils.bot_utils import reply_safe, send_long_message
 
 router = Router(name="agent")
 _active_background_tasks: set[asyncio.Task[Any]] = set()
@@ -149,7 +149,7 @@ async def handle_quota_info_callback(
     if callback.message is None:
         return
     await callback.answer()
-    from handlers.commands import send_usage
+    from app.handlers.commands import send_usage
 
     await send_usage(callback.message, bot, session_storage=session_storage)
 

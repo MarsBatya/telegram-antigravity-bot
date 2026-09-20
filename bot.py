@@ -8,26 +8,16 @@ from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.enums import ParseMode
 from aiogram.utils.callback_answer import CallbackAnswerMiddleware
 
-import agent_runner
-from bot_utils import (
-    PathMapper,
-    is_authorized,
-    make_progress_bar,
-    mask_proxy_url,
-    path_mapper,
-    register_telegram_commands,
-    reply_safe,
-    send_long_message,
-)
-import config
-from handlers import (
+from app.core import config
+from app.core.storage import SessionStorage
+from app.handlers import (
     agent_router,
     commands_router,
     explorer_router,
     sessions_router,
     settings_router,
 )
-from handlers.agent import (
+from app.handlers.agent import (
     execute_goal,
     execute_plan,
     execute_smash,
@@ -38,14 +28,14 @@ from handlers.agent import (
     process_agent_prompt,
     process_custom_agent_prompt,
 )
-from handlers.commands import (
+from app.handlers.commands import (
     handle_cancel_command,
     send_status,
     send_usage,
     send_welcome,
     show_bot_logs,
 )
-from handlers.explorer import (
+from app.handlers.explorer import (
     change_workspace,
     handle_browse_dir_callback,
     handle_file_info_callback,
@@ -57,7 +47,7 @@ from handlers.explorer import (
     show_tree_explorer,
     show_workspace_picker,
 )
-from handlers.sessions import (
+from app.handlers.sessions import (
     delete_session_command,
     execute_resume,
     handle_select_session_menu,
@@ -69,7 +59,7 @@ from handlers.sessions import (
     show_session_picker_callback,
     show_session_picker_message,
 )
-from handlers.settings import (
+from app.handlers.settings import (
     handle_open_effort_menu,
     handle_set_effort_callback,
     handle_set_mode_callback,
@@ -78,9 +68,18 @@ from handlers.settings import (
     show_mode_picker,
     show_model_picker,
 )
-from middlewares import AuthMiddleware
-from storage import SessionStorage
-import stream_runner
+from app.middlewares.auth import AuthMiddleware
+from app.runner import agent_runner, stream_runner
+from app.utils.bot_utils import (
+    PathMapper,
+    is_authorized,
+    make_progress_bar,
+    mask_proxy_url,
+    path_mapper,
+    register_telegram_commands,
+    reply_safe,
+    send_long_message,
+)
 
 _bot_token = (
     config.BOT_TOKEN

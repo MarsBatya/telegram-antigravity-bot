@@ -7,12 +7,15 @@ import threading
 import time
 from typing import Any
 
-import config
+from app.core import config
 
 SESSION_FILE: str = getattr(
     config,
     "SESSION_FILE",
-    os.path.join(os.path.dirname(__file__), "sessions.json"),
+    os.path.join(
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")),
+        "sessions.json",
+    ),
 )
 
 

@@ -1,5 +1,4 @@
-import agent_runner
-import stream_runner
+from app.runner import agent_runner, stream_runner
 
 
 def test_agent_runner_exports_all() -> None:

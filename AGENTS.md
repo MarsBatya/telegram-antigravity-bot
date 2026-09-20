@@ -13,22 +13,29 @@
 
 ## Repository Map
 
-- `bot.py`: Telegram bot entry point, Dispatcher setup, router registry, long-polling runner, and re-export facade.
-- `handlers/`: Modular aiogram routers:
-  - `commands.py`: General commands (`/start`, `/help`, `/status`, `/usage`, `/logs`, `/stop`, `/cancel`).
-  - `settings.py`: Model, reasoning effort, and mode selectors (`/model`, `/effort`, `/mode`).
-  - `explorer.py`: Interactive directory tree browser and workspace picker (`/tree`, `/workspace`).
-  - `sessions.py`: Active session card, resume, new, rename, and deletion (`/resume`, `/new`, `/rename`, `/delete`).
-  - `agent.py`: Agent execution orchestrator, text prompt runner, media downloader, and task modes (`/smash`, `/goal`, `/plan`).
-- `callbacks.py`: Type-safe `CallbackData` subclasses for inline buttons.
-- `keyboards.py`: Interactive reply keyboard and inline keyboard builders.
-- `middlewares.py`: Global authentication middleware (`AuthMiddleware`) verifying `ALLOWED_USER_IDS`.
-- `bot_utils.py`: `PathMapper` for path encoding, progress bar formatting, command menu registration, and safe message chunking.
-- `storage.py`: Thread-safe, file-backed session, workspace, setting, and process storage (`SessionStorage`), injected into handlers via aiogram v3 dependency injection.
-- `stream_runner.py`: Subprocess runner for `agy` CLI streaming execution, stdout JSON event parser, session persistence, lock management, and live quota checking.
-- `agent_runner.py`: Public facade exporting stream runner utilities for execution and session management.
-- `formatter.py`: Converts agent markdown output into Telegram HTML (`<pre><code>`, `<b>`, `<i>`, `<blockquote expandable>`).
-- `config.py`: Environment configuration loader (`.env`), Telegram user whitelist (`ALLOWED_USER_IDS`), and default agent persona.
+- `bot.py`: Primary Telegram bot entry point, Dispatcher setup, router registry, long-polling runner, and re-export facade.
+- `main.py`: Root entrypoint shortcut that invokes `bot.main()`.
+- `app/`: Core application package containing modular domain packages:
+  - `core/`:
+    - `config.py`: Environment configuration loader (`.env`), Telegram user whitelist (`ALLOWED_USER_IDS`), proxy normalization, and default agent persona.
+    - `storage.py`: Thread-safe, file-backed session, workspace, setting, and process storage (`SessionStorage`), injected into handlers via aiogram v3 dependency injection.
+  - `runner/`:
+    - `stream_runner.py`: Subprocess runner for `agy` CLI streaming execution, stdout JSON event parser, session persistence, lock management, and live quota checking.
+    - `agent_runner.py`: Public facade exporting stream runner utilities for execution and session management.
+  - `handlers/`: Modular aiogram routers:
+    - `commands.py`: General commands (`/start`, `/help`, `/status`, `/usage`, `/logs`, `/stop`, `/cancel`).
+    - `settings.py`: Model, reasoning effort, and mode selectors (`/model`, `/effort`, `/mode`).
+    - `explorer.py`: Interactive directory tree browser and workspace picker (`/tree`, `/workspace`).
+    - `sessions.py`: Active session card, resume, new, rename, and deletion (`/resume`, `/new`, `/rename`, `/delete`).
+    - `agent.py`: Agent execution orchestrator, text prompt runner, media downloader, and task modes (`/smash`, `/goal`, `/plan`).
+  - `ui/`:
+    - `callbacks.py`: Type-safe `CallbackData` subclasses for inline buttons.
+    - `keyboards.py`: Interactive reply keyboard and inline keyboard builders.
+  - `middlewares/`:
+    - `auth.py`: Global authentication middleware (`AuthMiddleware`) verifying `ALLOWED_USER_IDS`.
+  - `utils/`:
+    - `bot_utils.py`: `PathMapper` for path encoding, progress bar formatting, command menu registration, and safe message chunking.
+    - `formatter.py`: Converts agent markdown output into Telegram HTML (`<pre><code>`, `<b>`, `<i>`, `<blockquote expandable>`).
 - `tests/`: Pytest test suite covering modular routers, stream processing, formatting, and config.
 - `sessions.json`: Persisted chat sessions and workspace state (managed dynamically; do not manually overwrite).
 

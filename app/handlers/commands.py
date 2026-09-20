@@ -5,11 +5,16 @@ from aiogram import Bot, F, Router
 from aiogram.filters import Command
 from aiogram.types import Message
 
-import agent_runner
-import config
-from bot_utils import make_progress_bar, mask_proxy_url, reply_safe, send_long_message
-from keyboards import get_main_reply_keyboard
-from storage import SessionStorage
+from app.core import config
+from app.core.storage import SessionStorage
+from app.runner import agent_runner
+from app.ui.keyboards import get_main_reply_keyboard
+from app.utils.bot_utils import (
+    make_progress_bar,
+    mask_proxy_url,
+    reply_safe,
+    send_long_message,
+)
 
 router = Router(name="commands")
 

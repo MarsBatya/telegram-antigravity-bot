@@ -9,7 +9,7 @@ from aiogram.types import (
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from callbacks import (
+from app.ui.callbacks import (
     BrowseDirCallback,
     EffortCallback,
     FileInfoCallback,

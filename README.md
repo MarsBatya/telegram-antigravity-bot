@@ -89,8 +89,9 @@ uv run pytest
 # Format code
 uv run ruff format
 
-# Start bot
+# Start bot (either bot.py or main.py)
 uv run python bot.py
+# or: uv run python main.py
 ```
 
 Or using standard `venv`:

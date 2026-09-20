@@ -5,12 +5,21 @@ from aiogram import Bot, F, Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 
-import agent_runner
-from bot_utils import reply_safe
-from callbacks import EffortCallback, ModeCallback, ModelCallback, NavigationCallback
-import config
-from keyboards import get_effort_keyboard, get_mode_keyboard, get_model_keyboard
-from storage import SessionStorage
+from app.core import config
+from app.core.storage import SessionStorage
+from app.runner import agent_runner
+from app.ui.callbacks import (
+    EffortCallback,
+    ModeCallback,
+    ModelCallback,
+    NavigationCallback,
+)
+from app.ui.keyboards import (
+    get_effort_keyboard,
+    get_mode_keyboard,
+    get_model_keyboard,
+)
+from app.utils.bot_utils import reply_safe
 
 router = Router(name="settings")
 

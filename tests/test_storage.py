@@ -3,8 +3,8 @@ import os
 import threading
 from unittest.mock import MagicMock
 
-import config
-from storage import (
+from app.core import config
+from app.core.storage import (
     SessionStorage,
     _terminate_process_and_group,
     calculate_session_tokens,

@@ -6,16 +6,16 @@ from aiogram import Bot, F, Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 
-import agent_runner
-from bot_utils import reply_safe, send_long_message
-from callbacks import NavigationCallback, SessionCallback
-import formatter
-from keyboards import (
+from app.core.storage import SessionStorage
+from app.runner import agent_runner
+from app.ui.callbacks import NavigationCallback, SessionCallback
+from app.ui.keyboards import (
     get_session_delete_keyboard,
     get_session_menu_keyboard,
     get_session_picker_keyboard,
 )
-from storage import SessionStorage
+from app.utils import formatter
+from app.utils.bot_utils import reply_safe, send_long_message
 
 router = Router(name="sessions")
 
@@ -72,7 +72,7 @@ async def execute_resume(
     text = message.text or ""
     args = text.split(maxsplit=1)
     if len(args) > 1 and text != "▶️ Resume / Session":
-        from handlers.agent import process_custom_agent_prompt
+        from app.handlers.agent import process_custom_agent_prompt
 
         resume_prompt = args[1].strip()
         status_text = (

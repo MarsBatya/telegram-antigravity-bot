@@ -5,7 +5,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-env_path = Path(__file__).parent / ".env"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+env_path = PROJECT_ROOT / ".env"
 load_dotenv(dotenv_path=env_path)
 
 
@@ -90,7 +91,7 @@ CLOUDCODE_BASE_URL = (
 )
 SESSION_FILE = os.getenv(
     "SESSION_FILE",
-    os.path.join(os.path.dirname(__file__), "sessions.json"),
+    str(PROJECT_ROOT / "sessions.json"),
 ).strip()
 TEMP_UPLOAD_DIR = os.getenv(
     "TEMP_UPLOAD_DIR",

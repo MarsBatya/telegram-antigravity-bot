@@ -6,9 +6,9 @@ from pathlib import Path
 import time
 from unittest.mock import MagicMock, patch
 
-import config
-from storage import SessionStorage
-import stream_runner
+from app.core import config
+from app.core.storage import SessionStorage
+from app.runner import stream_runner
 
 
 def test_ascii_bar() -> None:
@@ -664,7 +664,7 @@ def test_run_antigravity_stream_registers_active_process(
 
 def test_atomic_session_persistence_concurrent(tmp_path: Path) -> None:
     import concurrent.futures
-    from storage import SessionStorage
+    from app.core.storage import SessionStorage
 
     session_file = str(tmp_path / "concurrent_sessions.json")
     storage = SessionStorage(file_path=session_file)

@@ -7,21 +7,21 @@ from aiogram import Bot, F, Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, FSInputFile, Message
 
-from bot_utils import format_file_size, path_mapper, reply_safe
-from callbacks import (
+from app.core import config
+from app.core.storage import SessionStorage
+from app.ui.callbacks import (
     BrowseDirCallback,
     FileInfoCallback,
     FileUploadCallback,
     NavigationCallback,
     WorkspaceCallback,
 )
-import config
-from keyboards import (
+from app.ui.keyboards import (
     get_file_details_keyboard,
     get_tree_keyboard,
     get_workspace_keyboard,
 )
-from storage import SessionStorage
+from app.utils.bot_utils import format_file_size, path_mapper, reply_safe
 
 router = Router(name="explorer")
 

@@ -14,9 +14,8 @@ import urllib.error
 import urllib.request
 from collections.abc import Callable
 
-import config
-
-from storage import (
+from app.core import config
+from app.core.storage import (
     SessionStorage,
     _terminate_process_and_group,
     calculate_session_tokens as calculate_session_tokens,

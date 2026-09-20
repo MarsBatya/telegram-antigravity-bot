@@ -6,8 +6,8 @@ from urllib.parse import urlsplit, urlunsplit
 from aiogram import Bot
 from aiogram.types import BotCommand, InlineKeyboardMarkup, Message, ReplyKeyboardMarkup
 
-import config
-from keyboards import get_main_reply_keyboard
+from app.core import config
+from app.ui.keyboards import get_main_reply_keyboard
 
 
 class PathMapper:

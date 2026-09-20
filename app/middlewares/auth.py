@@ -4,8 +4,8 @@ from typing import Any
 from aiogram import BaseMiddleware
 from aiogram.types import CallbackQuery, Message, TelegramObject
 
-import config
-from bot_utils import is_authorized
+from app.core import config
+from app.utils.bot_utils import is_authorized
 
 
 class AuthMiddleware(BaseMiddleware):

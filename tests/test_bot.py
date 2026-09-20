@@ -6,11 +6,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from aiogram import Bot
 from aiogram.types import CallbackQuery, Chat, Message, Update, User
 
-from storage import SessionStorage
-
-import bot
-from bot_utils import _chunk_text_safely, balance_html_chunks, format_file_size
-from callbacks import (
+from app.core import config
+from app.core.storage import SessionStorage
+from app.handlers.explorer import _paginate_tree_entries
+from app.middlewares.auth import AuthMiddleware
+from app.ui.callbacks import (
     BrowseDirCallback,
     EffortCallback,
     FileInfoCallback,
@@ -20,10 +20,13 @@ from callbacks import (
     SessionCallback,
     WorkspaceCallback,
 )
-import config
-from handlers.explorer import _paginate_tree_entries
-from keyboards import get_file_details_keyboard, get_tree_keyboard
-from middlewares import AuthMiddleware
+from app.ui.keyboards import get_file_details_keyboard, get_tree_keyboard
+from app.utils.bot_utils import (
+    _chunk_text_safely,
+    balance_html_chunks,
+    format_file_size,
+)
+import bot
 
 
 def make_mock_message(
@@ -217,7 +220,7 @@ async def test_register_telegram_commands() -> None:
 async def test_command_start_and_help(storage: SessionStorage) -> None:
     mock_bot = AsyncMock(spec=Bot)
     msg = make_mock_message(user_id=12345, text="/start")
-    with patch("handlers.commands.reply_safe", new=AsyncMock()) as mock_reply:
+    with patch("app.handlers.commands.reply_safe", new=AsyncMock()) as mock_reply:
         await bot.send_welcome(msg, mock_bot, session_storage=storage)
         mock_reply.assert_called_once()
         reply_text = mock_reply.call_args[0][2]
@@ -228,7 +231,7 @@ async def test_command_start_and_help(storage: SessionStorage) -> None:
 async def test_command_model_picker_and_callback(storage: SessionStorage) -> None:
     mock_bot = AsyncMock(spec=Bot)
     msg = make_mock_message(user_id=12345, text="/model")
-    with patch("handlers.settings.reply_safe", new=AsyncMock()) as mock_reply:
+    with patch("app.handlers.settings.reply_safe", new=AsyncMock()) as mock_reply:
         await bot.show_model_picker(msg, mock_bot, session_storage=storage)
         mock_reply.assert_called_once()
         text = mock_reply.call_args[0][2]
@@ -249,7 +252,7 @@ async def test_command_model_picker_and_callback(storage: SessionStorage) -> Non
 async def test_command_effort_picker_and_callback(storage: SessionStorage) -> None:
     mock_bot = AsyncMock(spec=Bot)
     msg = make_mock_message(user_id=12345, text="/effort")
-    with patch("handlers.settings.reply_safe", new=AsyncMock()) as mock_reply:
+    with patch("app.handlers.settings.reply_safe", new=AsyncMock()) as mock_reply:
         await bot.show_effort_picker(msg, mock_bot, session_storage=storage)
         mock_reply.assert_called_once()
         assert "Antigravity Reasoning Effort Level" in mock_reply.call_args[0][2]
@@ -268,7 +271,7 @@ async def test_command_effort_picker_and_callback(storage: SessionStorage) -> No
 async def test_command_mode_picker_and_callback(storage: SessionStorage) -> None:
     mock_bot = AsyncMock(spec=Bot)
     msg = make_mock_message(user_id=12345, text="/mode")
-    with patch("handlers.settings.reply_safe", new=AsyncMock()) as mock_reply:
+    with patch("app.handlers.settings.reply_safe", new=AsyncMock()) as mock_reply:
         await bot.show_mode_picker(msg, mock_bot, session_storage=storage)
         mock_reply.assert_called_once()
         assert "Antigravity Agent Execution Mode" in mock_reply.call_args[0][2]
@@ -289,7 +292,7 @@ async def test_command_workspace_and_callback(
     mock_bot = AsyncMock(spec=Bot)
     # /workspace with argument
     new_dir = str(tmp_path / "project-x")
-    with patch("handlers.explorer.reply_safe", new=AsyncMock()) as mock_reply:
+    with patch("app.handlers.explorer.reply_safe", new=AsyncMock()) as mock_reply:
         msg = make_mock_message(user_id=12345, text=f"/workspace {new_dir}")
         await bot.change_workspace(msg, mock_bot, session_storage=storage)
         mock_reply.assert_called_once()
@@ -302,7 +305,7 @@ async def test_command_workspace_and_callback(
         )
 
     # /workspace without argument shows picker
-    with patch("handlers.explorer.reply_safe", new=AsyncMock()) as mock_reply:
+    with patch("app.handlers.explorer.reply_safe", new=AsyncMock()) as mock_reply:
         msg = make_mock_message(user_id=12345, text="/workspace")
         await bot.change_workspace(msg, mock_bot, session_storage=storage)
         mock_reply.assert_called_once()
@@ -331,7 +334,7 @@ async def test_command_tree_explorer(tmp_path: Path, storage: SessionStorage) ->
         return_value=str(tmp_path),
     ):
         with patch(
-            "handlers.explorer.reply_safe",
+            "app.handlers.explorer.reply_safe",
             new=AsyncMock(),
         ) as mock_reply:
             msg = make_mock_message(user_id=12345, text="/tree")
@@ -344,14 +347,14 @@ async def test_command_tree_explorer(tmp_path: Path, storage: SessionStorage) ->
 async def test_command_cancel_and_stop(storage: SessionStorage) -> None:
     mock_bot = AsyncMock(spec=Bot)
     with patch.object(bot.agent_runner, "cancel_chat_process", return_value=True):
-        with patch("handlers.commands.reply_safe", new=AsyncMock()) as mock_reply:
+        with patch("app.handlers.commands.reply_safe", new=AsyncMock()) as mock_reply:
             msg = make_mock_message(user_id=12345, text="/stop")
             await bot.handle_cancel_command(msg, mock_bot, session_storage=storage)
             mock_reply.assert_called_once()
             assert "Successfully Cancelled" in mock_reply.call_args[0][2]
 
     with patch.object(bot.agent_runner, "cancel_chat_process", return_value=False):
-        with patch("handlers.commands.reply_safe", new=AsyncMock()) as mock_reply:
+        with patch("app.handlers.commands.reply_safe", new=AsyncMock()) as mock_reply:
             msg = make_mock_message(user_id=12345, text="/cancel")
             await bot.handle_cancel_command(msg, mock_bot, session_storage=storage)
             mock_reply.assert_called_once()
@@ -369,7 +372,7 @@ async def test_command_logs() -> None:
         return_value="log line 1\nlog line 2",
     ):
         with patch(
-            "handlers.commands.send_long_message",
+            "app.handlers.commands.send_long_message",
             new=AsyncMock(),
         ) as mock_send:
             msg = make_mock_message(user_id=12345, text="/logs")
@@ -380,7 +383,7 @@ async def test_command_logs() -> None:
 
 async def test_command_status_and_usage(storage: SessionStorage) -> None:
     mock_bot = AsyncMock(spec=Bot)
-    with patch("handlers.commands.reply_safe", new=AsyncMock()) as mock_reply:
+    with patch("app.handlers.commands.reply_safe", new=AsyncMock()) as mock_reply:
         msg = make_mock_message(user_id=12345, text="/status")
         await bot.send_status(msg, mock_bot, session_storage=storage)
         mock_reply.assert_called_once()
@@ -392,7 +395,7 @@ async def test_command_status_and_usage(storage: SessionStorage) -> None:
         return_value="Quota Info",
     ):
         with patch(
-            "handlers.commands.reply_safe",
+            "app.handlers.commands.reply_safe",
             new=AsyncMock(),
         ) as mock_reply:
             msg = make_mock_message(user_id=12345, text="/usage")
@@ -404,7 +407,7 @@ async def test_command_status_and_usage(storage: SessionStorage) -> None:
 async def test_command_new_session(storage: SessionStorage) -> None:
     mock_bot = AsyncMock(spec=Bot)
     with patch.object(bot.agent_runner, "reset_session") as mock_reset:
-        with patch("handlers.sessions.reply_safe", new=AsyncMock()) as mock_reply:
+        with patch("app.handlers.sessions.reply_safe", new=AsyncMock()) as mock_reply:
             msg = make_mock_message(user_id=12345, text="/new")
             await bot.reset_conversation(msg, mock_bot, session_storage=storage)
             mock_reset.assert_called_once_with(12345, storage=storage)
@@ -415,13 +418,13 @@ async def test_command_new_session(storage: SessionStorage) -> None:
 async def test_command_rename_session(storage: SessionStorage) -> None:
     mock_bot = AsyncMock(spec=Bot)
     # No title given
-    with patch("handlers.sessions.reply_safe", new=AsyncMock()) as mock_reply:
+    with patch("app.handlers.sessions.reply_safe", new=AsyncMock()) as mock_reply:
         msg = make_mock_message(user_id=12345, text="/rename")
         await bot.rename_session_command(msg, mock_bot, session_storage=storage)
         assert "Usage:" in mock_reply.call_args[0][2]
 
     # No active session
-    with patch("handlers.sessions.reply_safe", new=AsyncMock()) as mock_reply:
+    with patch("app.handlers.sessions.reply_safe", new=AsyncMock()) as mock_reply:
         msg = make_mock_message(user_id=12345, text="/rename Project Alpha")
         await bot.rename_session_command(msg, mock_bot, session_storage=storage)
         assert "No active conversation session" in mock_reply.call_args[0][2]
@@ -429,7 +432,7 @@ async def test_command_rename_session(storage: SessionStorage) -> None:
     # Success rename
     storage.set_active_session(12345, "conv-xyz")
     with patch.object(bot.agent_runner, "rename_session", return_value=True):
-        with patch("handlers.sessions.reply_safe", new=AsyncMock()) as mock_reply:
+        with patch("app.handlers.sessions.reply_safe", new=AsyncMock()) as mock_reply:
             msg = make_mock_message(user_id=12345, text="/rename Project Alpha")
             await bot.rename_session_command(msg, mock_bot, session_storage=storage)
             assert "Session Name Successfully Changed" in mock_reply.call_args[0][2]
@@ -439,7 +442,7 @@ async def test_command_smash_goal_plan(storage: SessionStorage) -> None:
     mock_bot = AsyncMock(spec=Bot)
     # Smash with arg
     with patch(
-        "handlers.agent.process_custom_agent_prompt",
+        "app.handlers.agent.process_custom_agent_prompt",
         new=AsyncMock(),
     ) as mock_proc:
         msg = make_mock_message(user_id=12345, text="/smash Fix all lints")
@@ -450,7 +453,7 @@ async def test_command_smash_goal_plan(storage: SessionStorage) -> None:
 
     # Goal with arg
     with patch(
-        "handlers.agent.process_agent_prompt",
+        "app.handlers.agent.process_agent_prompt",
         new=AsyncMock(),
     ) as mock_proc:
         msg = make_mock_message(user_id=12345, text="/goal Complete project")
@@ -461,7 +464,7 @@ async def test_command_smash_goal_plan(storage: SessionStorage) -> None:
 
     # Plan with arg
     with patch(
-        "handlers.agent.process_agent_prompt",
+        "app.handlers.agent.process_agent_prompt",
         new=AsyncMock(),
     ) as mock_proc:
         msg = make_mock_message(user_id=12345, text="/plan Database migration")
@@ -474,7 +477,7 @@ async def test_command_smash_goal_plan(storage: SessionStorage) -> None:
 async def test_handle_text_prompt(storage: SessionStorage) -> None:
     mock_bot = AsyncMock(spec=Bot)
     with patch(
-        "handlers.agent.process_agent_prompt",
+        "app.handlers.agent.process_agent_prompt",
         new=AsyncMock(),
     ) as mock_proc:
         msg = make_mock_message(
@@ -491,7 +494,7 @@ async def test_handle_text_prompt(storage: SessionStorage) -> None:
 
     # Empty text does nothing
     with patch(
-        "handlers.agent.process_agent_prompt",
+        "app.handlers.agent.process_agent_prompt",
         new=AsyncMock(),
     ) as mock_proc:
         msg_empty = make_mock_message(user_id=12345, text="   ")
@@ -503,7 +506,7 @@ async def test_execute_resume(storage: SessionStorage) -> None:
     mock_bot = AsyncMock(spec=Bot)
     # Without prompt -> shows picker
     with patch(
-        "handlers.sessions.show_session_picker_message",
+        "app.handlers.sessions.show_session_picker_message",
         new=AsyncMock(),
     ) as mock_picker:
         msg = make_mock_message(user_id=12345, text="/resume")
@@ -512,7 +515,7 @@ async def test_execute_resume(storage: SessionStorage) -> None:
 
     # With prompt -> resumes session
     with patch(
-        "handlers.agent.process_custom_agent_prompt",
+        "app.handlers.agent.process_custom_agent_prompt",
         new=AsyncMock(),
     ) as mock_custom:
         msg = make_mock_message(
@@ -529,7 +532,7 @@ async def test_show_session_picker_and_history(storage: SessionStorage) -> None:
     mock_bot = AsyncMock(spec=Bot)
     # No sessions found
     with patch.object(bot.agent_runner, "get_recent_sessions", return_value=[]):
-        with patch("handlers.sessions.reply_safe", new=AsyncMock()) as mock_reply:
+        with patch("app.handlers.sessions.reply_safe", new=AsyncMock()) as mock_reply:
             msg = make_mock_message(user_id=12345)
             await bot.show_session_picker_message(
                 msg,
@@ -545,7 +548,7 @@ async def test_show_session_picker_and_history(storage: SessionStorage) -> None:
         "get_recent_sessions",
         return_value=sessions,
     ):
-        with patch("handlers.sessions.reply_safe", new=AsyncMock()) as mock_reply:
+        with patch("app.handlers.sessions.reply_safe", new=AsyncMock()) as mock_reply:
             msg = make_mock_message(user_id=12345)
             await bot.show_session_picker_message(
                 msg,
@@ -576,7 +579,7 @@ async def test_handle_session_selection(storage: SessionStorage) -> None:
     # Select existing session
     with patch.object(bot.agent_runner, "set_active_session") as mock_set:
         with patch(
-            "handlers.sessions.show_session_history_card",
+            "app.handlers.sessions.show_session_history_card",
             new=AsyncMock(),
         ) as mock_card:
             call = make_mock_callback(user_id=12345)
@@ -601,7 +604,7 @@ async def test_show_session_history_card() -> None:
         return_value=turns,
     ):
         with patch(
-            "handlers.sessions.send_long_message",
+            "app.handlers.sessions.send_long_message",
             new=AsyncMock(),
         ) as mock_send:
             with patch("asyncio.sleep", new=AsyncMock()):
@@ -619,7 +622,7 @@ async def test_delete_session_command_and_callback(storage: SessionStorage) -> N
         "get_recent_sessions",
         return_value=sessions,
     ):
-        with patch("handlers.sessions.reply_safe", new=AsyncMock()) as mock_reply:
+        with patch("app.handlers.sessions.reply_safe", new=AsyncMock()) as mock_reply:
             msg = make_mock_message(user_id=12345, text="/delete")
             await bot.delete_session_command(msg, mock_bot)
             assert "Delete Conversation Session" in mock_reply.call_args[0][2]
@@ -656,7 +659,7 @@ async def test_handle_media_prompt(tmp_path: Path, storage: SessionStorage) -> N
         mock_bot.download_file = AsyncMock()
 
         with patch(
-            "handlers.agent.process_agent_prompt",
+            "app.handlers.agent.process_agent_prompt",
             new=AsyncMock(),
         ) as mock_proc:
             await bot.handle_media_prompt(msg_photo, mock_bot, session_storage=storage)
@@ -671,7 +674,7 @@ async def test_additional_callbacks(storage: SessionStorage) -> None:
     mock_bot = AsyncMock(spec=Bot)
     # quota_info
     call = make_mock_callback(user_id=12345)
-    with patch("handlers.commands.send_usage", new=AsyncMock()) as mock_usage:
+    with patch("app.handlers.commands.send_usage", new=AsyncMock()) as mock_usage:
         await bot.handle_quota_info_callback(call, mock_bot, session_storage=storage)
         call.answer.assert_called_once()
         mock_usage.assert_called_once_with(
@@ -683,7 +686,7 @@ async def test_additional_callbacks(storage: SessionStorage) -> None:
     # tree_explorer
     call_tree = make_mock_callback(user_id=12345)
     with patch(
-        "handlers.explorer.render_file_explorer_callback",
+        "app.handlers.explorer.render_file_explorer_callback",
         new=AsyncMock(),
     ) as mock_tree:
         await bot.handle_nav_tree(call_tree, session_storage=storage)
@@ -713,7 +716,7 @@ async def test_additional_callbacks(storage: SessionStorage) -> None:
     token = bot.path_mapper.encode("/root/my-project")
     cb_dir = BrowseDirCallback(token=token)
     with patch(
-        "handlers.explorer.render_file_explorer_callback",
+        "app.handlers.explorer.render_file_explorer_callback",
         new=AsyncMock(),
     ) as mock_tree:
         await bot.handle_browse_dir_callback(call_dir, cb_dir, session_storage=storage)
@@ -788,12 +791,12 @@ def test_create_bot_session_empty_proxy() -> None:
 
 
 def test_create_bot_session_from_env() -> None:
-    with patch("config.get_http_proxy", return_value="http://10.0.0.1:8080"):
+    with patch("app.core.config.get_http_proxy", return_value="http://10.0.0.1:8080"):
         session = bot.create_bot_session()
         assert session is not None
         assert session.proxy == "http://10.0.0.1:8080"
 
-    with patch("config.get_http_proxy", return_value=None):
+    with patch("app.core.config.get_http_proxy", return_value=None):
         session = bot.create_bot_session()
         assert session is None
 
@@ -808,7 +811,7 @@ def test_create_bot_with_proxy() -> None:
 
 
 def test_create_bot_without_proxy() -> None:
-    with patch("config.get_http_proxy", return_value=None):
+    with patch("app.core.config.get_http_proxy", return_value=None):
         custom_bot = bot.create_bot(
             token="123456:TEST_TOKEN",  # noqa: S106
             proxy=None,
@@ -822,7 +825,7 @@ async def test_command_status_displays_proxy(storage: SessionStorage) -> None:
     mock_session.proxy = "http://user:secret@127.0.0.1:8080"
     mock_bot.session = mock_session
 
-    with patch("handlers.commands.reply_safe", new=AsyncMock()) as mock_reply:
+    with patch("app.handlers.commands.reply_safe", new=AsyncMock()) as mock_reply:
         msg = make_mock_message(user_id=12345, text="/status")
         await bot.send_status(msg, mock_bot, session_storage=storage)
         mock_reply.assert_called_once()
@@ -1143,7 +1146,7 @@ async def test_dispatcher_workflow_injection(storage: SessionStorage) -> None:
     try:
         with (
             patch.object(config, "ALLOWED_USER_IDS", [12345]),
-            patch("handlers.commands.reply_safe", new=AsyncMock()) as mock_reply,
+            patch("app.handlers.commands.reply_safe", new=AsyncMock()) as mock_reply,
         ):
             await bot.dp.feed_update(
                 bot=test_bot,

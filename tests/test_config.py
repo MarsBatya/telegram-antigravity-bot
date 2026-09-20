@@ -1,7 +1,7 @@
 import os
 from unittest.mock import patch
 
-import config
+from app.core import config
 
 
 def test_parse_allowed_user_ids_empty():

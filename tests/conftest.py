@@ -1,7 +1,7 @@
 from pathlib import Path
 import pytest
 
-from storage import SessionStorage
+from app.core.storage import SessionStorage
 
 
 @pytest.fixture
