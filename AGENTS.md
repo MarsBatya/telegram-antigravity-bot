@@ -13,8 +13,7 @@
 
 ## Repository Map
 
-- `bot.py`: Primary Telegram bot entry point, Dispatcher setup, router registry, long-polling runner, and re-export facade.
-- `main.py`: Root entrypoint shortcut that invokes `bot.main()`.
+- `main.py`: Primary Telegram bot entry point, Dispatcher setup, router registry, and long-polling runner.
 - `app/`: Core application package containing modular domain packages:
   - `core/`:
     - `config.py`: Environment configuration loader (`.env`), Telegram user whitelist (`ALLOWED_USER_IDS`), proxy normalization, and default agent persona.
@@ -59,7 +58,7 @@ uv add --dev <package>
 ### Running the Bot
 ```bash
 # Run the bot in development
-uv run python bot.py
+uv run python main.py
 
 # Run via Docker Compose
 docker compose up -d
@@ -72,7 +71,7 @@ docker compose logs -f
 uv run pytest
 
 # Run a specific test file
-uv run pytest tests/test_bot.py
+uv run pytest tests/test_main.py
 
 # Run a single test case with verbosity
 uv run pytest tests/test_stream_runner.py -k "test_run_antigravity_stream" -v

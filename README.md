@@ -180,8 +180,7 @@ uv run pytest
 uv run ruff format --config /home/mars/python/.vscode/ruff.toml .
 
 # Start the bot
-uv run python bot.py
-# (or via shortcut: uv run python main.py)
+uv run python main.py
 ```
 
 ### Method 3: Systemd Service (VPS Deployment)
@@ -197,7 +196,7 @@ After=network.target
 Type=simple
 User=root
 WorkingDirectory=/root/telegram-antigravity-bot
-ExecStart=/root/.local/bin/uv run python /root/telegram-antigravity-bot/bot.py
+ExecStart=/root/.local/bin/uv run python /root/telegram-antigravity-bot/main.py
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1

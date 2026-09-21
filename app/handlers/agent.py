@@ -85,7 +85,7 @@ async def execute_smash(
             bot,
             message,
             "💥 <b>SMASH MODE!</b>\nEnter bug description or task to smash.\n"
-            "Example: <code>/smash Fix all errors in bot.py "
+            "Example: <code>/smash Fix all errors in main.py "
             "and test until working!</code>",
         )
         return

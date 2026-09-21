@@ -45,7 +45,7 @@ RUN chmod +x /docker-entrypoint.sh
 
 # ── Healthcheck: verify bot process is alive ──
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD pgrep -f "bot.py" > /dev/null || exit 1
+    CMD pgrep -f "main.py" > /dev/null || exit 1
 
 ENTRYPOINT ["/docker-entrypoint.sh"]
-CMD ["uv", "run", "python", "bot.py"]
+CMD ["uv", "run", "python", "main.py"]

@@ -1,3 +1,5 @@
+"""Antigravity AI Agent Telegram Bot - Main Entry Point."""
+
 import asyncio
 import sys
 from typing import Any
@@ -18,71 +20,10 @@ from app.handlers import (
     sessions_router,
     settings_router,
 )
-from app.handlers.agent import (
-    execute_goal,
-    execute_plan,
-    execute_smash,
-    format_pending_files_system_message,
-    handle_cancel_callback,
-    handle_document_upload,
-    handle_media_prompt,
-    handle_quota_info_callback,
-    handle_save_to_workspace_callback,
-    handle_text_prompt,
-    process_agent_prompt,
-    process_custom_agent_prompt,
-)
-from app.handlers.commands import (
-    handle_cancel_command,
-    send_status,
-    send_usage,
-    send_welcome,
-    show_bot_logs,
-)
-from app.handlers.explorer import (
-    change_workspace,
-    handle_browse_dir_callback,
-    handle_file_info_callback,
-    handle_file_upload_callback,
-    handle_nav_tree,
-    handle_set_ws_callback,
-    render_file_explorer_callback,
-    render_file_explorer_message,
-    show_tree_explorer,
-    show_workspace_picker,
-)
-from app.handlers.sessions import (
-    delete_session_command,
-    execute_resume,
-    handle_select_session_menu,
-    handle_session_callback,
-    rename_session_command,
-    reset_conversation,
-    show_active_session_info,
-    show_session_history_card,
-    show_session_picker_callback,
-    show_session_picker_message,
-)
-from app.handlers.settings import (
-    handle_open_effort_menu,
-    handle_set_effort_callback,
-    handle_set_mode_callback,
-    handle_set_model_callback,
-    show_effort_picker,
-    show_mode_picker,
-    show_model_picker,
-)
 from app.middlewares.auth import AuthMiddleware
-from app.runner import agent_runner, stream_runner
 from app.utils.bot_utils import (
-    PathMapper,
-    is_authorized,
-    make_progress_bar,
     mask_proxy_url,
-    path_mapper,
     register_telegram_commands,
-    reply_safe,
-    send_long_message,
 )
 
 _bot_token = (
@@ -127,6 +68,7 @@ def setup_dispatcher(
     storage: SessionStorage | None = None,
     model_manager: ModelManager | None = None,
 ) -> None:
+    """Configures middlewares, routers, and dependency injection on a Dispatcher."""
     if not target_dp.sub_routers:
         # Outer middleware for global authentication
         target_dp.message.outer_middleware(AuthMiddleware())
@@ -158,6 +100,7 @@ async def on_shutdown(
     session_storage: SessionStorage | None = None,
     **kwargs: Any,
 ) -> None:
+    """Shuts down active CLI processes and closes bot session on app exit."""
     print("🛑 Shutting down bot, terminating active CLI processes...")
     target_storage = (
         session_storage
@@ -175,6 +118,7 @@ dp.shutdown.register(on_shutdown)
 
 
 async def main() -> None:
+    """Launches the Antigravity Telegram bot long-polling process."""
     if not config.validate_config():
         print("[ERROR] Please configure .env before starting the bot.")
         sys.exit(1)
@@ -209,70 +153,15 @@ async def main() -> None:
 
 
 __all__ = [
-    "ModelManager",
-    "PathMapper",
-    "SessionStorage",
-    "agent_runner",
     "bot",
-    "change_workspace",
     "create_bot",
     "create_bot_session",
-    "delete_session_command",
     "dp",
-    "execute_goal",
-    "execute_plan",
-    "execute_resume",
-    "execute_smash",
-    "format_pending_files_system_message",
-    "handle_browse_dir_callback",
-    "handle_cancel_callback",
-    "handle_cancel_command",
-    "handle_document_upload",
-    "handle_file_info_callback",
-    "handle_file_upload_callback",
-    "handle_media_prompt",
-    "handle_nav_tree",
-    "handle_open_effort_menu",
-    "handle_quota_info_callback",
-    "handle_save_to_workspace_callback",
-    "handle_select_session_menu",
-    "handle_session_callback",
-    "handle_set_effort_callback",
-    "handle_set_mode_callback",
-    "handle_set_model_callback",
-    "handle_set_ws_callback",
-    "handle_text_prompt",
-    "is_authorized",
     "main",
-    "make_progress_bar",
-    "mask_proxy_url",
     "model_manager",
     "on_shutdown",
-    "path_mapper",
-    "process_agent_prompt",
-    "process_custom_agent_prompt",
-    "register_telegram_commands",
-    "rename_session_command",
-    "render_file_explorer_callback",
-    "render_file_explorer_message",
-    "reply_safe",
-    "reset_conversation",
-    "send_long_message",
-    "send_status",
-    "send_usage",
-    "send_welcome",
     "setup_dispatcher",
-    "show_active_session_info",
-    "show_bot_logs",
-    "show_effort_picker",
-    "show_mode_picker",
-    "show_model_picker",
-    "show_session_history_card",
-    "show_session_picker_callback",
-    "show_session_picker_message",
-    "show_tree_explorer",
-    "show_workspace_picker",
-    "stream_runner",
+    "storage",
 ]
 
 if __name__ == "__main__":
