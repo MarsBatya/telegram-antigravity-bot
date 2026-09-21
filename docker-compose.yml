@@ -1,0 +1,53 @@
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: telegram-antigravity-bot
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+    env_file:
+      - .env
+    environment:
+      # Unbuffered stdout/stderr for real-time docker logs
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+      # Proxy vars (inherited by agy subprocess automatically)
+      - HTTP_PROXY=${HTTP_PROXY:-}
+      - HTTPS_PROXY=${HTTPS_PROXY:-${HTTP_PROXY:-}}
+      - NO_PROXY=${NO_PROXY:-localhost,127.0.0.1,::1}
+      # Gemini API key (headless auth)
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      # Bot configuration
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - ALLOWED_USER_IDS=${ALLOWED_USER_IDS:-}
+      - AGY_PATH=${AGY_PATH:-/root/.local/bin/agy}
+      - DEFAULT_WORKSPACE=${DEFAULT_WORKSPACE:-/root/workspace}
+      - SESSION_FILE=${SESSION_FILE:-/app/data/sessions.json}
+    volumes:
+      # Persist entire agy config dir (brain, settings, oauth token)
+      - agy-data:/root/.gemini/antigravity-cli
+      # Persist bot sessions (directory volume avoids single-file mount lock/busy issues with atomic writes)
+      - bot-sessions:/app/data
+      # Workspace directory for agy operations
+      # Option A: Named volume (isolated container storage)
+      - bot-workspace:${DEFAULT_WORKSPACE:-/root/workspace}
+      # Option B: Host directory (uncomment to edit created files directly on host)
+      # - ./workspace:${DEFAULT_WORKSPACE:-/root/workspace}
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  agy-data:
+  bot-sessions:
+  bot-workspace:

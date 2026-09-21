@@ -37,9 +37,9 @@ Any other message is treated as a prompt for the agent.
 
 ## Requirements
 
-- Python 3.8+
-- The Antigravity CLI (`agy`) installed on the server
-- A Telegram bot token from @BotFather
+- Python 3.10+ (Python 3.12 recommended) or Docker & Docker Compose
+- The Antigravity CLI (`agy`) installed on the host (or automated inside Docker)
+- A Telegram bot token from [@BotFather](https://t.me/BotFather)
 
 ## Quick Setup
 
@@ -58,27 +58,112 @@ Create your configuration file from the example:
 cp .env.example .env
 ```
 
-Then edit `.env` and fill in your values:
+Edit `.env` to configure your credentials:
 
 ```env
+# Required: Telegram Bot Token and authorized users
 TELEGRAM_BOT_TOKEN=123456789:AA...your-token-from-botfather
-ALLOWED_USER_IDS=8927082329
+ALLOWED_USER_IDS=123456789
+
+# Antigravity CLI & Workspace settings
 AGY_PATH=/root/.local/bin/agy
-DEFAULT_WORKSPACE=/root/my-project
+DEFAULT_WORKSPACE=/root/workspace
 ```
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `TELEGRAM_BOT_TOKEN` | Yes | - | Bot token from @BotFather |
-| `ALLOWED_USER_IDS` | Yes | - | Comma-separated Telegram user IDs allowed to use the bot |
+| `TELEGRAM_BOT_TOKEN` | Yes | - | Bot token obtained from [@BotFather](https://t.me/BotFather) |
+| `ALLOWED_USER_IDS` | Yes | - | Comma-separated Telegram user IDs allowed to interact with the bot |
 | `AGY_PATH` | No | `/root/.local/bin/agy` | Path to the Antigravity CLI binary |
-| `DEFAULT_WORKSPACE` | No | `/root/my-project` | Default working directory for the agent |
-| `HTTP_PROXY` | No | - | Optional HTTP/HTTPS/SOCKS5 proxy URL for Telegram connection |
+| `DEFAULT_WORKSPACE` | No | `/root/workspace` | Default working directory for the agent |
+| `GEMINI_API_KEY` | No | - | Gemini API key for headless authentication |
+| `HTTP_PROXY` | No | - | HTTP/HTTPS/SOCKS5 proxy URL for Telegram and `agy` requests |
+| `HTTPS_PROXY` | No | - | HTTPS proxy URL (defaults to `HTTP_PROXY` if omitted) |
+| `NO_PROXY` | No | `localhost,127.0.0.1,::1` | Comma-separated domains/IPs to bypass proxy |
 
-### 3. Install dependencies and run
+---
 
-Using `uv` (recommended):
+## Authentication Options
 
+The bot supports two authentication strategies for the Antigravity CLI (`agy`):
+
+### Option 1: Gemini API Key (Headless — Recommended for Docker & Servers)
+
+Ideal for automated deployments, Docker containers, and headless VPS environments where a web browser is unavailable.
+
+1. Obtain an API key from [Google AI Studio](https://aistudio.google.com/).
+2. Add your key to `.env`:
+   ```env
+   GEMINI_API_KEY=your_gemini_api_key_here
+   ```
+3. When starting via Docker or the entrypoint script, `settings.json` is automatically configured with `"modelProvider": "gemini"` so `agy` runs directly without prompting for OAuth.
+
+### Option 2: OAuth Token (Host Mount)
+
+If you already use `agy` interactively on your host machine and have run `agy login`:
+
+1. Your OAuth token is located on the host at:
+   - Linux/macOS: `~/.gemini/antigravity-cli/antigravity-oauth-token`
+2. **In Docker**: Mount the host token file into the container by adding it to the `volumes` section of `docker-compose.yml`:
+   ```yaml
+   volumes:
+     - ~/.gemini/antigravity-cli/antigravity-oauth-token:/root/.gemini/antigravity-cli/antigravity-oauth-token:ro
+   ```
+3. **Local Run**: The local `agy` binary will automatically find your existing token in `~/.gemini/antigravity-cli/`.
+
+---
+
+## Proxy Configuration
+
+If your server or network requires an HTTP, HTTPS, or SOCKS proxy to reach the Telegram API or Google Gemini endpoints:
+
+1. Specify your proxy URL in `.env`:
+   ```env
+   HTTP_PROXY=http://127.0.0.1:10808
+   HTTPS_PROXY=http://127.0.0.1:10808
+   NO_PROXY=localhost,127.0.0.1,::1
+   ```
+   *(SOCKS5 proxies are also supported for Telegram polling: `socks5://127.0.0.1:10808`)*
+
+2. **How it works**:
+   - **Telegram polling**: `aiogram` routes network requests through `aiohttp-socks` using `HTTP_PROXY`.
+   - **Docker & Subprocesses**: The Docker entrypoint script normalizes and exports uppercase and lowercase proxy variables (`HTTP_PROXY`, `http_proxy`, `HTTPS_PROXY`, `https_proxy`, `ALL_PROXY`, `all_proxy`, `NO_PROXY`, `no_proxy`), ensuring `agy` CLI subprocesses seamlessly inherit proxy settings.
+
+---
+
+## How to Run
+
+### Method 1: Docker Compose (Recommended)
+
+Run the bot inside an isolated Docker container with the `agy` CLI pre-installed, automatic signal handling (`init: true`), and data persistence:
+
+```bash
+# 1. Build and start container in the background
+docker compose up -d
+
+# 2. View live logs
+docker compose logs -f
+
+# 3. Check container health status
+docker compose ps
+
+# 4. Stop the bot cleanly
+docker compose down
+```
+
+**Persistent Volumes in Docker:**
+- `agy-data`: Persists agent brain memory, conversations, and settings (`/root/.gemini/antigravity-cli`).
+- `bot-sessions`: Preserves active chat session IDs and state across container restarts (`/app/data/sessions.json`).
+- `bot-workspace`: Working directory where the agent creates and edits files (`/root/workspace`). To inspect or edit files directly on your host machine, you can bind-mount a host folder (e.g. `./workspace:/root/workspace`) by uncommenting Option B in `docker-compose.yml`.
+
+### Method 2: Local Development with `uv`
+
+Ensure you have installed the Antigravity CLI on your machine:
+```bash
+curl -fsSL https://antigravity.google/cli/install.sh | bash
+```
+
+Run the bot with `uv`:
 ```bash
 # Sync dependencies
 uv sync
@@ -87,23 +172,14 @@ uv sync
 uv run pytest
 
 # Format code
-uv run ruff format
+uv run ruff format --config /home/mars/python/.vscode/ruff.toml .
 
-# Start bot (either bot.py or main.py)
+# Start the bot
 uv run python bot.py
-# or: uv run python main.py
+# (or via shortcut: uv run python main.py)
 ```
 
-Or using standard `venv`:
-
-```bash
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-python bot.py
-```
-
-### 4. Run as a systemd service (recommended for a VPS)
+### Method 3: Systemd Service (VPS Deployment)
 
 Create `/etc/systemd/system/telegram-antigravity-bot.service`:
 
@@ -115,8 +191,8 @@ After=network.target
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/root/my-project/telegram-antigravity-bot
-ExecStart=/root/my-project/telegram-antigravity-bot/venv/bin/python /root/my-project/telegram-antigravity-bot/bot.py
+WorkingDirectory=/root/telegram-antigravity-bot
+ExecStart=/root/.local/bin/uv run python /root/telegram-antigravity-bot/bot.py
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
@@ -125,18 +201,19 @@ Environment=PYTHONUNBUFFERED=1
 WantedBy=multi-user.target
 ```
 
-Then enable and start it:
+Enable and start the service:
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable telegram-antigravity-bot.service
-sudo systemctl start telegram-antigravity-bot.service
+sudo systemctl enable --now telegram-antigravity-bot.service
+sudo journalctl -u telegram-antigravity-bot.service -f
 ```
 
 ## Security
 
 - The bot rejects messages from any user not listed in `ALLOWED_USER_IDS` and logs unauthorized attempts.
 - The bot token is read from `.env`, which is excluded from version control.
+- **Docker Root Execution**: The Docker container runs as `root` as a deliberate design decision. This gives the Antigravity agent (`agy`) full execution flexibility to run terminal commands, install packages, and manage workspace files without permission barriers in headless environments.
 
 ## License
 

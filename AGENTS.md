@@ -36,7 +36,9 @@
   - `utils/`:
     - `bot_utils.py`: `PathMapper` for path encoding, progress bar formatting, command menu registration, and safe message chunking.
     - `formatter.py`: Converts agent markdown output into Telegram HTML (`<pre><code>`, `<b>`, `<i>`, `<blockquote expandable>`).
-- `tests/`: Pytest test suite covering modular routers, stream processing, formatting, and config.
+- `Dockerfile`: Multi-stage Dockerfile bundling python 3.12-slim, agy CLI, uv, and healthcheck.
+- `docker-compose.yml`: Container orchestration with volumes, proxy passthrough, and resource limits.
+- `docker-entrypoint.sh`: Container bootstrap script handling sessions.json initialization, proxy vars, and auth setup.
 - `sessions.json`: Persisted chat sessions and workspace state (managed dynamically; do not manually overwrite).
 
 ---
@@ -57,6 +59,10 @@ uv add --dev <package>
 ```bash
 # Run the bot in development
 uv run python bot.py
+
+# Run via Docker Compose
+docker compose up -d
+docker compose logs -f
 ```
 
 ### Testing
@@ -129,3 +135,4 @@ All Python code in this repository must use strict, modern type annotations conf
 - **Credentials**: Never commit `.env` or OAuth tokens (`antigravity-oauth-token`). Always refer to `.env.example`.
 - **Sessions File**: Do not manually delete or format `sessions.json` during test execution or development; use `stream_runner.load_persistent_sessions` and `save_persistent_sessions` or mock the file in tests.
 - **Process Management**: Ensure subprocess cancellations properly terminate the child process group so orphaned `agy` CLI processes do not linger on the host.
+- **Docker Root Execution**: The Docker container intentionally runs as `root` to grant the `agy` CLI sub-processes full flexibility to manage system packages, developer tooling, and workspace files without permission barriers.

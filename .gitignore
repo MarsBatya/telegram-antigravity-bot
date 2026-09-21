@@ -8,3 +8,5 @@ env/
 sessions.json
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
+docker-compose.override.yml
