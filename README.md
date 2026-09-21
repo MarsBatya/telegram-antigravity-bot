@@ -87,6 +87,11 @@ DEFAULT_WORKSPACE=/root/workspace
 
 The bot supports two authentication strategies for the Antigravity CLI (`agy`):
 
+> [!NOTE]
+> **Model Availability:**
+> - When `GEMINI_API_KEY` is used, **only Gemini models** (e.g. Gemini 3.8, 3.7, 3.6, 3.1 Pro) are available.
+> - For **Claude** and **GPT** models to be available, it is required to use an **OAuth token**.
+
 ### Option 1: Gemini API Key (Headless — Recommended for Docker & Servers)
 
 Ideal for automated deployments, Docker containers, and headless VPS environments where a web browser is unavailable.
