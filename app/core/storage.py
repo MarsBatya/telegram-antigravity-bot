@@ -52,7 +52,8 @@ def _terminate_process_and_group(proc: subprocess.Popen[Any]) -> None:
                 os.killpg(pgid, sig_term)
     with contextlib.suppress(Exception):
         proc.terminate()
-    time.sleep(0.3)
+    with contextlib.suppress(subprocess.TimeoutExpired, Exception):
+        proc.wait(timeout=0.3)
     if proc.poll() is None:
         if isinstance(pid, int):
             with contextlib.suppress(Exception):

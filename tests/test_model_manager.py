@@ -108,3 +108,23 @@ def test_model_manager_fetch_with_token_file(tmp_path: Path) -> None:
         res = mgr.get_available_models(token_file=token_file)
         assert len(res) == 1
         assert res[0]["id"] == "model-x"
+
+
+def test_model_manager_fetch_from_cli() -> None:
+    mgr = ModelManager(agy_path="agy")
+    mgr._allow_cli_fetch = True
+    fake_stdout = (
+        "gemini-3.8-flash-high\tGemini 3.8 Flash (High)\n"
+        "claude-sonnet-4-6\tClaude Sonnet 4.6 (Thinking)\n"
+    )
+    mock_res = MagicMock(returncode=0, stdout=fake_stdout)
+    with (
+        patch("shutil.which", return_value="/mock/bin/agy"),
+        patch("subprocess.run", return_value=mock_res) as mock_subproc,
+    ):
+        models = mgr.fetch_from_cli()
+        mock_subproc.assert_called_once()
+        assert len(models) == 2
+        assert models[0]["id"] == "gemini-3.8-flash-high"
+        assert models[0]["supportsThinking"] is True
+        assert models[1]["id"] == "claude-sonnet-4-6"

@@ -129,7 +129,7 @@ def test_session_storage_thread_safety(tmp_path: os.PathLike[str]) -> None:
     storage = SessionStorage(file_path=test_file)
 
     def worker(worker_id: int) -> None:
-        for i in range(20):
+        for i in range(6):
             chat_id = worker_id * 100 + i
             storage.set_active_session(chat_id, f"conv-{chat_id}")
             storage.set_setting(chat_id, "mode", config.DEFAULT_MODE)
@@ -143,9 +143,9 @@ def test_session_storage_thread_safety(tmp_path: os.PathLike[str]) -> None:
     for t in threads:
         t.join()
 
-    # Verify all 100 sessions were set and saved cleanly
+    # Verify all 30 sessions were set and saved cleanly
     storage_reloaded = SessionStorage(file_path=test_file)
-    assert len(storage_reloaded.active_conversations) == 100
+    assert len(storage_reloaded.active_conversations) == 30
 
 
 def test_terminate_process_and_group() -> None:

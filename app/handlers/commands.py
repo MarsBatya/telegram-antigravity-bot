@@ -116,7 +116,7 @@ async def send_status(
 ) -> None:
     chat_id = message.chat.id
     try:
-        cpu_pct = psutil.cpu_percent(interval=0.8)
+        cpu_pct = psutil.cpu_percent(interval=None)
         ram = psutil.virtual_memory()
         user_ws = session_storage.get_workspace(chat_id)
         target_disk = (

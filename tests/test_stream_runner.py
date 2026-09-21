@@ -888,13 +888,13 @@ def test_stream_progress_tracker() -> None:
 
     tracker = stream_runner.StreamProgressTracker(
         progress_callback=on_progress,
-        throttle_interval=0.05,
+        throttle_interval=0.01,
     )
     try:
         tracker.set_activity("Running command: <code>pwd</code>")
-        time.sleep(0.08)
+        time.sleep(0.015)
         tracker.add_completed_step("Ran <code>pwd</code>")
-        time.sleep(0.08)
+        time.sleep(0.015)
         tracker.set_activity("Drafting response...")
         tracker.flush(force=True)
 
