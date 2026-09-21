@@ -246,6 +246,53 @@ async def test_command_model_picker_and_callback(storage: SessionStorage) -> Non
     assert storage.get_setting(12345, "model") == "claude-sonnet-4-6"
 
 
+async def test_command_model_with_args_shorthand(storage: SessionStorage) -> None:
+    from aiogram.filters import CommandObject
+
+    mock_bot = AsyncMock(spec=Bot)
+    msg = make_mock_message(user_id=12345, text="/model gemini-3.8-high")
+    cmd = CommandObject(prefix="/", command="model", args="gemini-3.8-high")
+
+    with patch("app.handlers.settings.reply_safe", new=AsyncMock()) as mock_reply:
+        await bot.show_model_picker(
+            msg,
+            mock_bot,
+            session_storage=storage,
+            command=cmd,
+        )
+        mock_reply.assert_called_once()
+        text = mock_reply.call_args[0][2]
+        assert "gemini-3.8-flash-high" in text
+        assert storage.get_setting(12345, "model") == "gemini-3.8-flash-high"
+
+
+async def test_command_model_picker_injected_model_manager(
+    storage: SessionStorage,
+) -> None:
+    from app.core.model_manager import ModelManager
+
+    custom_mgr = ModelManager()
+    custom_mgr._cache = [
+        {"id": "custom-injected-model", "displayName": "Custom Injected"},
+    ]
+    custom_mgr._cache_time = 9999999999.0
+    mock_bot = AsyncMock(spec=Bot)
+    msg = make_mock_message(user_id=12345, text="/model")
+    with patch("app.handlers.settings.reply_safe", new=AsyncMock()) as mock_reply:
+        await bot.show_model_picker(
+            msg,
+            mock_bot,
+            session_storage=storage,
+            model_manager=custom_mgr,
+        )
+        mock_reply.assert_called_once()
+        markup = (
+            mock_reply.call_args[1].get("reply_markup") or mock_reply.call_args[0][3]
+        )
+        button_texts = [btn.text for row in markup.inline_keyboard for btn in row]
+        assert any("Custom Injected" in text for text in button_texts)
+
+
 async def test_command_effort_picker_and_callback(storage: SessionStorage) -> None:
     mock_bot = AsyncMock(spec=Bot)
     msg = make_mock_message(user_id=12345, text="/effort")

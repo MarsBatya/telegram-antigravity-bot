@@ -81,7 +81,7 @@ DEFAULT_WORKSPACE = os.getenv(
     str(Path.home() / "my-project"),
 ).strip()
 
-DEFAULT_MODEL = "gemini-3.6-flash-high"
+DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "gemini-3.8-flash-high").strip()
 DEFAULT_EFFORT = "high"
 DEFAULT_MODE = "accept-edits"
 

@@ -22,6 +22,7 @@ from app.core.storage import (
     _terminate_process_and_group,
     calculate_session_tokens as calculate_session_tokens,
 )
+from app.core.model_manager import ModelManager
 from app.utils.bot_utils import make_progress_bar
 
 SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
@@ -139,64 +140,11 @@ def fetch_live_user_quota_summary(token_file: str | None = None) -> str:
 
 def fetch_available_models_live(
     token_file: str | None = None,
+    model_manager: ModelManager | None = None,
 ) -> list[dict[str, Any]]:
-    """Fetches list of active models directly from Google Cloud Code API"""
-    target_token_file = token_file or getattr(
-        config,
-        "OAUTH_TOKEN_PATH",
-        DEFAULT_OAUTH_TOKEN_PATH,
-    )
-    if not os.path.exists(target_token_file):
-        return []
-
-    try:
-        with open(target_token_file, "r", encoding="utf-8") as f:
-            token_data = json.load(f)
-
-        access_token = token_data.get("token", {}).get("access_token")
-        if not access_token:
-            return []
-
-        headers = {
-            "Authorization": f"Bearer {access_token}",
-            "Content-Type": "application/json",
-            "User-Agent": "antigravity-cli/1.1.9",
-        }
-
-        base_url = getattr(
-            config,
-            "CLOUDCODE_BASE_URL",
-            "https://daily-cloudcode-pa.googleapis.com",
-        ).rstrip("/")
-        url = f"{base_url}/v1internal:fetchAvailableModels"
-        req = urllib.request.Request(  # noqa: S310
-            url,
-            data=b"{}",
-            headers=headers,
-            method="POST",
-        )
-
-        with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310
-            data = json.loads(resp.read().decode("utf-8"))
-
-        models = []
-        for m_id, m_info in data.get("models", {}).items():
-            disp = m_info.get("displayName")
-            if disp:
-                models.append(
-                    {
-                        "id": m_id,
-                        "displayName": disp,
-                        "supportsThinking": m_info.get("supportsThinking", False),
-                        "recommended": m_info.get("recommended", False),
-                    },
-                )
-
-        models.sort(key=lambda x: (not x["recommended"], x["displayName"]))
-        return models
-    except Exception as e:
-        print(f"[ERROR] fetch_available_models_live: {e}")
-        return []
+    """Fetches list of active models directly from agy CLI or Google Cloud Code API."""
+    mgr = model_manager if model_manager is not None else ModelManager()
+    return mgr.get_available_models(token_file=token_file)
 
 
 def fetch_bot_logs(lines_count: int = 30) -> str:

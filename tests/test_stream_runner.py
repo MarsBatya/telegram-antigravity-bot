@@ -352,6 +352,37 @@ def test_fetch_available_models_live(tmp_path: Path) -> None:
         assert models[1]["id"] == "model-b"
 
 
+def test_fetch_available_models_tiered_expansion(tmp_path: Path) -> None:
+    token_file = str(tmp_path / "oauth-token.json")
+    with open(token_file, "w", encoding="utf-8") as f:
+        json.dump({"token": {"access_token": "ya29.mock_token"}}, f)
+
+    fake_response = {
+        "models": {
+            "gemini-3.8-flash-tiered": {
+                "supportsThinking": True,
+                "recommended": True,
+            },
+            "gemini-3.1-pro-high": {
+                "displayName": "Gemini 3.1 Pro (High)",
+                "recommended": False,
+            },
+        },
+    }
+
+    mock_resp = MagicMock()
+    mock_resp.read.return_value = json.dumps(fake_response).encode("utf-8")
+    mock_resp.__enter__.return_value = mock_resp
+
+    with patch("urllib.request.urlopen", return_value=mock_resp):
+        models = stream_runner.fetch_available_models_live(token_file=token_file)
+        ids = [m["id"] for m in models]
+        assert "gemini-3.8-flash-high" in ids
+        assert "gemini-3.8-flash-medium" in ids
+        assert "gemini-3.8-flash-low" in ids
+        assert "gemini-3.1-pro-high" in ids
+
+
 def test_fetch_live_user_quota_summary(tmp_path: Path) -> None:
     token_file = str(tmp_path / "oauth-token.json")
 

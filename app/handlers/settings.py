@@ -1,13 +1,14 @@
 import contextlib
+import html
 from typing import Any
 
 from aiogram import Bot, F, Router
-from aiogram.filters import Command
+from aiogram.filters import Command, CommandObject
 from aiogram.types import CallbackQuery, Message
 
 from app.core import config
+from app.core.model_manager import ModelManager
 from app.core.storage import SessionStorage
-from app.runner import agent_runner
 from app.ui.callbacks import (
     EffortCallback,
     ModeCallback,
@@ -24,24 +25,20 @@ from app.utils.bot_utils import reply_safe
 router = Router(name="settings")
 
 
-def _get_models_list() -> list[dict[str, Any]]:
-    models = agent_runner.fetch_available_models_live()
-    if not models:
-        models = [
-            {"id": "gemini-3.6-flash-high", "displayName": "Gemini 3.6 Flash (High)"},
-            {
-                "id": "gemini-3.6-flash-medium",
-                "displayName": "Gemini 3.6 Flash (Medium)",
-            },
-            {"id": "gemini-3.1-pro-high", "displayName": "Gemini 3.1 Pro (High)"},
-            {"id": "claude-sonnet-4-6", "displayName": "Claude Sonnet 4.6 (Thinking)"},
-            {
-                "id": "claude-opus-4-6-thinking",
-                "displayName": "Claude Opus 4.6 (Thinking)",
-            },
-            {"id": "gpt-oss-120b-medium", "displayName": "GPT-OSS 120B (Medium)"},
-        ]
-    return models
+def _get_models_list(
+    model_manager: ModelManager | None = None,
+) -> list[dict[str, Any]]:
+    mgr = model_manager if model_manager is not None else ModelManager()
+    return mgr.get_available_models()
+
+
+def _resolve_model_id(
+    query: str,
+    available_models: list[dict[str, Any]] | None = None,
+    model_manager: ModelManager | None = None,
+) -> str:
+    mgr = model_manager if model_manager is not None else ModelManager()
+    return mgr.resolve_model_id(query, available_models)
 
 
 @router.message(Command(commands=["model"]))
@@ -50,16 +47,32 @@ async def show_model_picker(
     message: Message,
     bot: Bot,
     session_storage: SessionStorage,
+    model_manager: ModelManager | None = None,
+    command: CommandObject | None = None,
 ) -> None:
     chat_id = message.chat.id
+    mgr = model_manager if model_manager is not None else ModelManager()
+    models = mgr.get_available_models()
+
+    if command and command.args:
+        raw_target = command.args.strip()
+        matched_id = mgr.resolve_model_id(raw_target, models)
+        session_storage.set_setting(chat_id, "model", matched_id)
+        text = (
+            f"✅ <b>AI Model Successfully Changed To:</b>\n"
+            f"<code>{html.escape(matched_id)}</code>\n\n"
+            f"<i>All subsequent AI executions will use this model!</i>"
+        )
+        await reply_safe(bot, message, text)
+        return
+
     cur_model = session_storage.get_setting(chat_id, "model", config.DEFAULT_MODEL)
-    models = _get_models_list()
     markup = get_model_keyboard(cur_model, models)
 
     text = (
         "🤖 <b>Antigravity AI Model Selector</b>\n\n"
-        f"🎯 <b>Current Active Model:</b> <code>{cur_model}</code>\n\n"
-        "Select an AI model below to use in the conversation:"
+        f"🎯 <b>Current Active Model:</b> <code>{html.escape(cur_model)}</code>\n\n"
+        "Select an AI model below to use or type <code>/model &lt;name&gt;</code>:"
     )
     await reply_safe(bot, message, text, reply_markup=markup)
 
@@ -113,11 +126,12 @@ async def handle_set_model_callback(
     session_storage.set_setting(chat_id, "model", m_id)
 
     with contextlib.suppress(Exception):
-        await callback.message.edit_text(
-            f"✅ <b>AI Model Successfully Changed To:</b>\n<code>{m_id}</code>\n\n"
-            f"<i>All subsequent AI executions will use this model!</i>",
-            parse_mode="HTML",
+        text = (
+            "✅ <b>AI Model Successfully Changed To:</b>\n"
+            f"<code>{html.escape(m_id)}</code>\n\n"
+            "<i>All subsequent AI executions will use this model!</i>"
         )
+        await callback.message.edit_text(text, parse_mode="HTML")
 
 
 @router.message(Command(commands=["effort"]))

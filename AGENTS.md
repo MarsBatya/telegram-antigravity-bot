@@ -18,6 +18,7 @@
 - `app/`: Core application package containing modular domain packages:
   - `core/`:
     - `config.py`: Environment configuration loader (`.env`), Telegram user whitelist (`ALLOWED_USER_IDS`), proxy normalization, and default agent persona.
+    - `model_manager.py`: Encapsulates AI model catalog discovery (`agy models`, CloudCode API tiered parsing), caching, and resolution (`ModelManager`), injected via aiogram v3 dependency injection.
     - `storage.py`: Thread-safe, file-backed session, workspace, setting, and process storage (`SessionStorage`), injected into handlers via aiogram v3 dependency injection.
   - `runner/`:
     - `stream_runner.py`: Subprocess runner for `agy` CLI streaming execution, stdout JSON event parser, session persistence, lock management, and live quota checking.

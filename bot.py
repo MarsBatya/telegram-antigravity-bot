@@ -9,6 +9,7 @@ from aiogram.enums import ParseMode
 from aiogram.utils.callback_answer import CallbackAnswerMiddleware
 
 from app.core import config
+from app.core.model_manager import ModelManager
 from app.core.storage import SessionStorage
 from app.handlers import (
     agent_router,
@@ -114,12 +115,14 @@ def create_bot(
 
 bot = create_bot()
 storage = SessionStorage()
+model_manager = ModelManager()
 dp = Dispatcher()
 
 
 def setup_dispatcher(
     target_dp: Dispatcher,
     storage: SessionStorage | None = None,
+    model_manager: ModelManager | None = None,
 ) -> None:
     if not target_dp.sub_routers:
         # Outer middleware for global authentication
@@ -138,9 +141,11 @@ def setup_dispatcher(
 
     if storage is not None:
         target_dp["session_storage"] = storage
+    if model_manager is not None:
+        target_dp["model_manager"] = model_manager
 
 
-setup_dispatcher(dp, storage=storage)
+setup_dispatcher(dp, storage=storage, model_manager=model_manager)
 
 
 async def on_shutdown(
@@ -172,7 +177,8 @@ async def main() -> None:
         sys.exit(1)
 
     storage = SessionStorage()
-    setup_dispatcher(dp, storage=storage)
+    model_manager = ModelManager()
+    setup_dispatcher(dp, storage=storage, model_manager=model_manager)
 
     await register_telegram_commands(bot)
 
@@ -195,11 +201,14 @@ async def main() -> None:
         bot,
         allowed_updates=dp.resolve_used_update_types(),
         session_storage=storage,
+        model_manager=model_manager,
     )
 
 
 __all__ = [
+    "ModelManager",
     "PathMapper",
+    "SessionStorage",
     "agent_runner",
     "bot",
     "change_workspace",
@@ -231,6 +240,7 @@ __all__ = [
     "main",
     "make_progress_bar",
     "mask_proxy_url",
+    "model_manager",
     "on_shutdown",
     "path_mapper",
     "process_agent_prompt",
@@ -257,7 +267,6 @@ __all__ = [
     "show_tree_explorer",
     "show_workspace_picker",
     "stream_runner",
-    "SessionStorage",
 ]
 
 if __name__ == "__main__":
