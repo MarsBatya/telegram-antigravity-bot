@@ -46,6 +46,7 @@ def test_config_constants():
     assert config.DEFAULT_MODE == "accept-edits"
     assert "daily-cloudcode-pa" in config.CLOUDCODE_BASE_URL
     assert "SYSTEM DIRECTIVE" in config.SYSTEM_PERSONA_PROMPT
+    assert config.DOWNLOADS_DIR.endswith("downloads")
 
 
 def test_get_default_agy_path():

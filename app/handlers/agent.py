@@ -5,6 +5,7 @@ import html
 import inspect
 import os
 import re
+import shutil
 import tempfile
 import time
 import traceback
@@ -18,17 +19,57 @@ from aiogram.utils.chat_action import ChatActionSender
 from app.core import config
 from app.core.storage import SessionStorage
 from app.runner import stream_runner
-from app.ui.callbacks import NavigationCallback
+from app.ui.callbacks import NavigationCallback, SaveToWorkspaceCallback
 from app.ui.keyboards import (
     get_action_bar_keyboard,
     get_cancel_keyboard,
     get_main_reply_keyboard,
+    get_save_to_workspace_keyboard,
 )
 from app.utils import formatter
-from app.utils.bot_utils import reply_safe, send_long_message
+from app.utils.bot_utils import (
+    format_file_size,
+    path_mapper,
+    reply_safe,
+    send_long_message,
+)
 
 router = Router(name="agent")
 _active_background_tasks: set[asyncio.Task[Any]] = set()
+
+MAX_DOWNLOAD_SIZE_BYTES: int = 100 * 1024 * 1024  # 100 MB
+
+
+def format_pending_files_system_message(pending_files: list[dict[str, Any]]) -> str:
+    """Formats pending uploaded files into a system prompt message to be injected
+    before the user's message into the AI dialog.
+    """
+    if not pending_files:
+        return ""
+    lines: list[str] = []
+    for f in pending_files:
+        name = f.get("file_name", "file")
+        ws_path = f.get("workspace_path")
+        dl_path = f.get("file_path", "")
+        if f.get("saved_to_workspace") and ws_path:
+            lines.append(
+                f"user uploaded '{name}' to the downloads folder "
+                f"and confirmed downloading to workspace at '{ws_path}'",
+            )
+        else:
+            lines.append(
+                f"user uploaded a '{name}' to the downloads folder ({dl_path})",
+            )
+    notice = ". ".join(lines)
+    return f"[System: {notice}]\n\n"
+
+
+def _consume_pending_files_prefix(
+    session_storage: SessionStorage,
+    chat_id: int,
+) -> str:
+    pending = session_storage.get_and_clear_pending_files(chat_id)
+    return format_pending_files_system_message(pending)
 
 
 @router.message(Command(commands=["smash"]))
@@ -49,7 +90,9 @@ async def execute_smash(
         )
         return
 
+    prefix = _consume_pending_files_prefix(session_storage, message.chat.id)
     smash_prompt = (
+        f"{prefix}"
         "💥 SMASH MODE INSTRUCTION: Complete the following task with "
         "maximum effort, thoroughness, and speed. Fix all bugs, resolve any "
         "broken code/tests, build the project, and do not stop until "
@@ -89,7 +132,9 @@ async def execute_goal(
         )
         return
 
+    prefix = _consume_pending_files_prefix(session_storage, message.chat.id)
     goal_prompt = (
+        f"{prefix}"
         f"Goal: {args[1].strip()}. "
         f"Ensure this task is completed thoroughly and completely."
     )
@@ -118,7 +163,8 @@ async def execute_plan(
         )
         return
 
-    plan_prompt = f"Create a step-by-step plan for: {args[1].strip()}"
+    prefix = _consume_pending_files_prefix(session_storage, message.chat.id)
+    plan_prompt = f"{prefix}Create a step-by-step plan for: {args[1].strip()}"
     await process_agent_prompt(
         bot,
         message,
@@ -160,12 +206,163 @@ async def handle_quota_info_callback(
     await send_usage(callback.message, bot, session_storage=session_storage)
 
 
-@router.message(F.photo | F.document)
+@router.message(F.document)
+async def handle_document_upload(
+    message: Message,
+    bot: Bot,
+    session_storage: SessionStorage,
+) -> None:
+    doc = message.document
+    if not doc:
+        return
+
+    file_name = doc.file_name or f"doc_{int(time.time())}"
+    safe_name = os.path.basename(file_name) or f"doc_{int(time.time())}"
+    file_size = doc.file_size or 0
+
+    if file_size > MAX_DOWNLOAD_SIZE_BYTES:
+        await reply_safe(
+            bot,
+            message,
+            f"⚠️ <b>File Too Large</b>\n"
+            f"File <code>{html.escape(safe_name)}</code> is "
+            f"{format_file_size(file_size)}, which exceeds the 100MB limit "
+            f"for automatic downloads.",
+        )
+        return
+
+    downloads_dir = getattr(
+        config,
+        "DOWNLOADS_DIR",
+        str(config.PROJECT_ROOT / "downloads"),
+    )
+    os.makedirs(downloads_dir, exist_ok=True)
+    saved_path = os.path.join(downloads_dir, safe_name)
+
+    try:
+        file_info = await bot.get_file(doc.file_id)
+        if not file_info or not file_info.file_path:
+            raise ValueError("Could not retrieve file path from Telegram.")
+        await bot.download_file(file_info.file_path, destination=saved_path)
+    except Exception as e:
+        err_text = str(e)
+        if "file is too big" in err_text.lower():
+            err_msg = (
+                f"❌ <b>Download Failed</b>\n"
+                f"Telegram rejected download for "
+                f"<code>{html.escape(safe_name)}</code> "
+                f"({format_file_size(file_size)}): exceeds Telegram Cloud Bot API "
+                f"20MB limit.\n"
+                f"<i>(Note: A local Telegram Bot API server is required to "
+                f"download files up to 100MB.)</i>"
+            )
+        else:
+            err_msg = (
+                f"❌ <b>Download Failed</b>\n"
+                f"Failed to download <code>{html.escape(safe_name)}</code>: "
+                f"{html.escape(err_text)}"
+            )
+        await reply_safe(bot, message, err_msg)
+        return
+
+    token = path_mapper.encode(saved_path)
+    workspace_markup = get_save_to_workspace_keyboard(token)
+    caption = (message.caption or "").strip()
+
+    if caption:
+        prefix = _consume_pending_files_prefix(session_storage, message.chat.id)
+        current_notice = (
+            f"user uploaded a '{safe_name}' to the downloads folder ({saved_path})"
+        )
+        if prefix:
+            combined_system = f"{prefix.rstrip()}\n{current_notice}"
+            full_prompt = f"{combined_system}\n\n{caption}"
+        else:
+            full_prompt = f"[System: {current_notice}]\n\n{caption}"
+
+        await reply_safe(
+            bot,
+            message,
+            f"📥 <b>File Downloaded to Server</b>\n\n"
+            f"• <b>File:</b> <code>{html.escape(safe_name)}</code>\n"
+            f"• <b>Size:</b> {format_file_size(file_size)}\n"
+            f"• <b>Saved to:</b> <code>{html.escape(saved_path)}</code>\n\n"
+            f"<i>Tap below to confirm downloading this file to your "
+            f"active workspace:</i>",
+            reply_markup=workspace_markup,
+        )
+        await process_agent_prompt(
+            bot,
+            message,
+            full_prompt,
+            session_storage=session_storage,
+        )
+    else:
+        session_storage.add_pending_file(
+            message.chat.id,
+            safe_name,
+            saved_path,
+            file_size,
+        )
+        await reply_safe(
+            bot,
+            message,
+            f"📥 <b>File Downloaded to Server</b>\n\n"
+            f"• <b>File:</b> <code>{html.escape(safe_name)}</code>\n"
+            f"• <b>Size:</b> {format_file_size(file_size)}\n"
+            f"• <b>Saved to:</b> <code>{html.escape(saved_path)}</code>\n\n"
+            f"<i>Tap below to confirm downloading this file to your active workspace, "
+            f"or send your instructions/prompt:</i>",
+            reply_markup=workspace_markup,
+        )
+
+
+@router.callback_query(SaveToWorkspaceCallback.filter())
+async def handle_save_to_workspace_callback(
+    callback: CallbackQuery,
+    callback_data: SaveToWorkspaceCallback,
+    session_storage: SessionStorage,
+) -> None:
+    if callback.message is None:
+        return
+
+    chat_id = callback.message.chat.id
+    saved_path = path_mapper.decode(callback_data.token)
+
+    if not saved_path or not os.path.exists(saved_path):
+        await callback.answer("⚠️ File not found on server or expired.", show_alert=True)
+        return
+
+    file_name = os.path.basename(saved_path)
+    workspace = session_storage.get_workspace(chat_id)
+    try:
+        os.makedirs(workspace, exist_ok=True)
+        dest_path = os.path.join(workspace, file_name)
+        shutil.copy2(saved_path, dest_path)
+        session_storage.mark_file_saved_to_workspace(chat_id, saved_path, dest_path)
+        await callback.answer("✅ Saved to workspace!")
+        with contextlib.suppress(Exception):
+            await callback.message.edit_text(
+                f"✅ <b>File Saved to Workspace!</b>\n\n"
+                f"• <b>File:</b> <code>{html.escape(file_name)}</code>\n"
+                f"• <b>Workspace:</b> <code>{html.escape(dest_path)}</code>\n"
+                f"• <b>Downloads:</b> <code>{html.escape(saved_path)}</code>",
+                parse_mode="HTML",
+            )
+    except Exception as e:
+        await callback.answer(f"Failed to copy file: {e}", show_alert=True)
+
+
+@router.message(F.photo)
 async def handle_media_prompt(
     message: Message,
     bot: Bot,
     session_storage: SessionStorage,
 ) -> None:
+    if message.document:
+        await handle_document_upload(message, bot, session_storage=session_storage)
+        return
+
     caption = (
         message.caption or "Analyze this file/photo and help fix any errors if present."
     )
@@ -176,10 +373,6 @@ async def handle_media_prompt(
             file_id = message.photo[-1].file_id
             file_info = await bot.get_file(file_id)
             file_name = f"photo_{int(time.time())}.jpg"
-        elif message.document:
-            file_id = message.document.file_id
-            file_info = await bot.get_file(file_id)
-            file_name = message.document.file_name or f"doc_{int(time.time())}"
 
         if file_info and file_info.file_path:
             temp_dir = getattr(
@@ -191,7 +384,8 @@ async def handle_media_prompt(
             saved_path = os.path.join(temp_dir, file_name)
             await bot.download_file(file_info.file_path, destination=saved_path)
 
-            prompt = f"File uploaded at '{saved_path}'. Instructions: {caption}"
+            prefix = _consume_pending_files_prefix(session_storage, message.chat.id)
+            prompt = f"{prefix}File uploaded at '{saved_path}'. Instructions: {caption}"
             await process_agent_prompt(
                 bot,
                 message,
@@ -209,9 +403,11 @@ async def handle_text_prompt(
     bot: Bot,
     session_storage: SessionStorage,
 ) -> None:
-    prompt = (message.text or "").strip()
-    if not prompt:
+    text = (message.text or "").strip()
+    if not text:
         return
+    prefix = _consume_pending_files_prefix(session_storage, message.chat.id)
+    prompt = f"{prefix}{text}" if prefix else text
     await process_agent_prompt(
         bot,
         message,

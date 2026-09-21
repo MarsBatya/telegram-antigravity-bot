@@ -10,3 +10,4 @@ sessions.json
 .ruff_cache/
 .mypy_cache/
 docker-compose.override.yml
+downloads/

@@ -97,6 +97,65 @@ def calculate_session_tokens(conv_id: str, brain_dir: str | None = None) -> int:
     return total_tokens
 
 
+def _parse_dict_keys(raw: Any) -> dict[int, Any]:
+    res: dict[int, Any] = {}
+    if isinstance(raw, dict):
+        for k, v in raw.items():
+            with contextlib.suppress(ValueError, TypeError):
+                res[int(k)] = v
+    return res
+
+
+def _parse_pending_files(raw: Any) -> dict[int, list[dict[str, Any]]]:
+    res: dict[int, list[dict[str, Any]]] = {}
+    if isinstance(raw, dict):
+        for k, v in raw.items():
+            with contextlib.suppress(ValueError, TypeError):
+                if isinstance(v, list):
+                    res[int(k)] = [dict(item) for item in v if isinstance(item, dict)]
+    return res
+
+
+def _parse_storage_payload(
+    data: Any,
+) -> tuple[
+    dict[int, str | bool],
+    dict[int, str],
+    dict[int, dict[str, str]],
+    dict[int, list[dict[str, Any]]],
+]:
+    if not isinstance(data, dict):
+        return {}, {}, {}, {}
+
+    is_structured = any(
+        k in data
+        for k in (
+            "conversations",
+            "workspaces",
+            "settings",
+            "pending_files",
+        )
+    )
+    if is_structured:
+        raw_convs = data.get("conversations", {})
+        raw_ws = data.get("workspaces", {})
+        raw_settings = data.get("settings", {})
+        raw_pending = data.get("pending_files", {})
+    else:
+        raw_convs = data
+        raw_ws, raw_settings, raw_pending = {}, {}, {}
+
+    loaded_convs = _parse_dict_keys(raw_convs)
+    loaded_workspaces = {k: str(v) for k, v in _parse_dict_keys(raw_ws).items()}
+    loaded_settings = {
+        k: {str(sk): str(sv) for sk, sv in v.items()}
+        for k, v in _parse_dict_keys(raw_settings).items()
+        if isinstance(v, dict)
+    }
+    loaded_pending = _parse_pending_files(raw_pending)
+    return loaded_convs, loaded_workspaces, loaded_settings, loaded_pending
+
+
 class SessionStorage:
     """Thread-safe, file-backed session, workspace, setting, and process storage."""
 
@@ -106,6 +165,7 @@ class SessionStorage:
         self.active_workspaces: dict[int, str] = {}
         self.active_settings: dict[int, dict[str, str]] = {}
         self.chat_token_usage: dict[int, dict[str, int]] = {}
+        self.pending_file_uploads: dict[int, list[dict[str, Any]]] = {}
         self.active_processes: dict[int, subprocess.Popen[Any]] = {}
         self.chat_locks: dict[int, threading.Lock] = {}
         self._file_lock: threading.Lock = threading.Lock()
@@ -120,20 +180,18 @@ class SessionStorage:
         loaded_convs: dict[int, str | bool] = {}
         loaded_workspaces: dict[int, str] = {}
         loaded_settings: dict[int, dict[str, str]] = {}
+        loaded_pending: dict[int, list[dict[str, Any]]] = {}
         with self._file_lock:
             if os.path.exists(target_file):
                 try:
                     with open(target_file, "r", encoding="utf-8") as f:
                         data = json.load(f)
-                        convs = data.get("conversations", {})
-                        workspaces = data.get("workspaces", {})
-                        settings = data.get("settings", {})
-                        if not convs and not workspaces and isinstance(data, dict):
-                            convs = data
-
-                        loaded_convs = {int(k): v for k, v in convs.items()}
-                        loaded_workspaces = {int(k): v for k, v in workspaces.items()}
-                        loaded_settings = {int(k): v for k, v in settings.items()}
+                    (
+                        loaded_convs,
+                        loaded_workspaces,
+                        loaded_settings,
+                        loaded_pending,
+                    ) = _parse_storage_payload(data)
                 except Exception as e:
                     print(f"[ERROR] Loading sessions.json: {e}")
 
@@ -141,6 +199,7 @@ class SessionStorage:
             self.active_conversations = loaded_convs
             self.active_workspaces = loaded_workspaces
             self.active_settings = loaded_settings
+            self.pending_file_uploads = loaded_pending
 
     def save(self, file_path: str | None = None) -> None:
         """Saves conversation mapping, workspaces, and settings
@@ -152,6 +211,11 @@ class SessionStorage:
                 convs_copy = dict(self.active_conversations)
                 workspaces_copy = dict(self.active_workspaces)
                 settings_copy = {k: dict(v) for k, v in self.active_settings.items()}
+                pending_copy = {
+                    k: [dict(item) for item in v]
+                    for k, v in self.pending_file_uploads.items()
+                    if v
+                }
 
             temp_file: Path | None = None
             try:
@@ -161,6 +225,7 @@ class SessionStorage:
                     "conversations": {str(k): v for k, v in convs_copy.items()},
                     "workspaces": {str(k): v for k, v in workspaces_copy.items()},
                     "settings": {str(k): v for k, v in settings_copy.items()},
+                    "pending_files": {str(k): v for k, v in pending_copy.items()},
                 }
                 temp_file = target_path.with_name(
                     f"{target_path.name}.tmp.{os.getpid()}.{threading.get_ident()}",
@@ -287,7 +352,69 @@ class SessionStorage:
             self.active_conversations.pop(chat_id, None)
             if chat_id in self.chat_token_usage:
                 self.chat_token_usage[chat_id]["session_tokens"] = 0
+            self.pending_file_uploads.pop(chat_id, None)
         self.save()
+
+    def add_pending_file(
+        self,
+        chat_id: int,
+        file_name: str,
+        file_path: str,
+        file_size: int = 0,
+    ) -> None:
+        with self._state_lock:
+            if chat_id not in self.pending_file_uploads:
+                self.pending_file_uploads[chat_id] = []
+            self.pending_file_uploads[chat_id].append(
+                {
+                    "file_name": file_name,
+                    "file_path": file_path,
+                    "file_size": file_size,
+                    "saved_to_workspace": False,
+                    "workspace_path": None,
+                    "timestamp": time.time(),
+                },
+            )
+        self.save()
+
+    def mark_file_saved_to_workspace(
+        self,
+        chat_id: int,
+        file_path: str,
+        workspace_path: str,
+    ) -> bool:
+        updated = False
+        norm_path = os.path.abspath(file_path)
+        with self._state_lock:
+            if chat_id in self.pending_file_uploads:
+                for item in self.pending_file_uploads[chat_id]:
+                    if os.path.abspath(item.get("file_path", "")) == norm_path:
+                        item["saved_to_workspace"] = True
+                        item["workspace_path"] = workspace_path
+                        updated = True
+        if updated:
+            self.save()
+        return updated
+
+    def get_pending_files(self, chat_id: int) -> list[dict[str, Any]]:
+        with self._state_lock:
+            return [dict(x) for x in self.pending_file_uploads.get(chat_id, [])]
+
+    def get_and_clear_pending_files(self, chat_id: int) -> list[dict[str, Any]]:
+        with self._state_lock:
+            files = self.pending_file_uploads.pop(chat_id, [])
+        if files:
+            self.save()
+        return files
+
+    def clear_pending_files(self, chat_id: int) -> None:
+        had_files = False
+        with self._state_lock:
+            if chat_id in self.pending_file_uploads:
+                self.pending_file_uploads.pop(chat_id, None)
+                had_files = True
+        if had_files:
+            self.save()
 
     def cancel_chat_process(self, chat_id: int) -> bool:
         with self._state_lock:

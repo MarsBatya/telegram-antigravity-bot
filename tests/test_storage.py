@@ -274,3 +274,45 @@ def test_session_storage_save_failure_cleans_temp_file(
     remaining_files = os.listdir(tmp_path)
     tmp_files = [f for f in remaining_files if ".tmp." in f]
     assert len(tmp_files) == 0
+
+
+def test_session_storage_pending_files(tmp_path: os.PathLike[str]) -> None:
+    test_file = os.path.join(tmp_path, "sessions_pending.json")
+    storage = SessionStorage(file_path=test_file)
+
+    dl_test = os.path.join(tmp_path, "downloads", "test.txt")
+    ws_test = os.path.join(tmp_path, "workspace", "test.txt")
+    storage.add_pending_file(100, "test.txt", dl_test, 1024)
+    pending = storage.get_pending_files(100)
+    assert len(pending) == 1
+    assert pending[0]["file_name"] == "test.txt"
+    assert pending[0]["saved_to_workspace"] is False
+
+    # Mark saved to workspace
+    updated = storage.mark_file_saved_to_workspace(
+        100,
+        dl_test,
+        ws_test,
+    )
+    assert updated is True
+    pending_after = storage.get_pending_files(100)
+    assert pending_after[0]["saved_to_workspace"] is True
+    assert pending_after[0]["workspace_path"] == ws_test
+
+    # Persistence load
+    storage_loaded = SessionStorage(file_path=test_file)
+    pending_loaded = storage_loaded.get_pending_files(100)
+    assert len(pending_loaded) == 1
+    assert pending_loaded[0]["workspace_path"] == ws_test
+
+    # Get and clear
+    cleared = storage_loaded.get_and_clear_pending_files(100)
+    assert len(cleared) == 1
+    assert len(storage_loaded.get_pending_files(100)) == 0
+
+    # Reset session clears pending files
+    dl_foo = os.path.join(tmp_path, "downloads", "foo.py")
+    storage.add_pending_file(200, "foo.py", dl_foo, 2048)
+    assert len(storage.get_pending_files(200)) == 1
+    storage.reset_session(200)
+    assert len(storage.get_pending_files(200)) == 0

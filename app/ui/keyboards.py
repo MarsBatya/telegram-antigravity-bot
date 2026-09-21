@@ -18,6 +18,7 @@ from app.ui.callbacks import (
     ModeCallback,
     ModelCallback,
     NavigationCallback,
+    SaveToWorkspaceCallback,
     SessionCallback,
     WorkspaceCallback,
 )
@@ -351,6 +352,20 @@ def get_cancel_keyboard() -> InlineKeyboardMarkup:
         InlineKeyboardButton(
             text="🛑 Cancel / Stop",
             callback_data=NavigationCallback(target="cancel_execution").pack(),
+        ),
+    )
+    return builder.as_markup()
+
+
+def get_save_to_workspace_keyboard(token: str) -> InlineKeyboardMarkup:
+    """Builds an inline keyboard with a button for the user to confirm
+    downloading/copying the uploaded file into the active workspace.
+    """
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(
+            text="📥 Save to Workspace",
+            callback_data=SaveToWorkspaceCallback(token=token).pack(),
         ),
     )
     return builder.as_markup()

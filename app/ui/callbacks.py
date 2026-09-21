@@ -39,3 +39,7 @@ class SessionCallback(CallbackData, prefix="sess"):
 
 class NavigationCallback(CallbackData, prefix="nav"):
     target: str  # "effort_menu", "tree_explorer", "quota_info", "cancel_execution"
+
+
+class SaveToWorkspaceCallback(CallbackData, prefix="ws_save"):
+    token: str

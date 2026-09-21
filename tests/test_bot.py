@@ -17,6 +17,7 @@ from app.ui.callbacks import (
     FileUploadCallback,
     ModeCallback,
     ModelCallback,
+    SaveToWorkspaceCallback,
     SessionCallback,
     WorkspaceCallback,
 )
@@ -705,6 +706,258 @@ async def test_handle_media_prompt(tmp_path: Path, storage: SessionStorage) -> N
             assert "File uploaded at" in prompt_arg
             assert "Explain this diagram" in prompt_arg
             assert mock_proc.call_args[1]["session_storage"] is storage
+
+
+async def test_handle_document_upload_no_caption(
+    tmp_path: Path,
+    storage: SessionStorage,
+) -> None:
+    mock_bot = AsyncMock(spec=Bot)
+    downloads_dir = tmp_path / "downloads"
+    with patch.object(config, "DOWNLOADS_DIR", str(downloads_dir)):
+        msg_doc = make_mock_message(user_id=12345, caption=None)
+        doc = MagicMock()
+        doc.file_id = "doc_123"
+        doc.file_name = "test_file.txt"
+        doc.file_size = 1024
+        msg_doc.document = doc
+
+        file_info = MagicMock()
+        file_info.file_path = "documents/test_file.txt"
+        mock_bot.get_file.return_value = file_info
+        mock_bot.download_file = AsyncMock()
+
+        with patch("app.handlers.agent.reply_safe", new=AsyncMock()) as mock_reply:
+            await bot.handle_document_upload(msg_doc, mock_bot, session_storage=storage)
+            mock_bot.download_file.assert_called_once()
+            mock_reply.assert_called_once()
+            reply_text = mock_reply.call_args[0][2]
+            assert "File Downloaded to Server" in reply_text
+            assert "test_file.txt" in reply_text
+
+            # Check pending files stored
+            pending = storage.get_pending_files(12345)
+            assert len(pending) == 1
+            assert pending[0]["file_name"] == "test_file.txt"
+            assert pending[0]["saved_to_workspace"] is False
+
+
+async def test_handle_document_upload_with_caption(
+    tmp_path: Path,
+    storage: SessionStorage,
+) -> None:
+    mock_bot = AsyncMock(spec=Bot)
+    downloads_dir = tmp_path / "downloads"
+    with patch.object(config, "DOWNLOADS_DIR", str(downloads_dir)):
+        msg_doc = make_mock_message(user_id=12345, caption="Fix bugs in this file")
+        doc = MagicMock()
+        doc.file_id = "doc_456"
+        doc.file_name = "code.py"
+        doc.file_size = 2048
+        msg_doc.document = doc
+
+        file_info = MagicMock()
+        file_info.file_path = "documents/code.py"
+        mock_bot.get_file.return_value = file_info
+        mock_bot.download_file = AsyncMock()
+
+        with (
+            patch("app.handlers.agent.reply_safe", new=AsyncMock()) as mock_reply,
+            patch(
+                "app.handlers.agent.process_agent_prompt",
+                new=AsyncMock(),
+            ) as mock_proc,
+        ):
+            await bot.handle_document_upload(msg_doc, mock_bot, session_storage=storage)
+            mock_bot.download_file.assert_called_once()
+            mock_reply.assert_called_once()
+            mock_proc.assert_called_once()
+
+            prompt_arg = mock_proc.call_args[0][2]
+            assert (
+                "[System: user uploaded a 'code.py' to the downloads folder"
+                in prompt_arg
+            )
+            assert "Fix bugs in this file" in prompt_arg
+            # Pending files should be cleared because it reacted immediately
+            assert len(storage.get_pending_files(12345)) == 0
+
+
+async def test_handle_document_upload_over_100mb(
+    tmp_path: Path,
+    storage: SessionStorage,
+) -> None:
+    mock_bot = AsyncMock(spec=Bot)
+    downloads_dir = tmp_path / "downloads"
+    with patch.object(config, "DOWNLOADS_DIR", str(downloads_dir)):
+        msg_doc = make_mock_message(user_id=12345)
+        doc = MagicMock()
+        doc.file_id = "doc_huge"
+        doc.file_name = "huge.iso"
+        doc.file_size = 105 * 1024 * 1024  # 105 MB
+        msg_doc.document = doc
+
+        with patch("app.handlers.agent.reply_safe", new=AsyncMock()) as mock_reply:
+            await bot.handle_document_upload(msg_doc, mock_bot, session_storage=storage)
+            mock_reply.assert_called_once()
+            reply_text = mock_reply.call_args[0][2]
+            assert "File Too Large" in reply_text
+            assert "100MB limit" in reply_text
+            assert len(storage.get_pending_files(12345)) == 0
+
+
+async def test_handle_document_upload_failure_handling(
+    tmp_path: Path,
+    storage: SessionStorage,
+) -> None:
+    mock_bot = AsyncMock(spec=Bot)
+    downloads_dir = tmp_path / "downloads"
+    with patch.object(config, "DOWNLOADS_DIR", str(downloads_dir)):
+        msg_doc = make_mock_message(user_id=12345)
+        doc = MagicMock()
+        doc.file_id = "doc_big"
+        doc.file_name = "video.mp4"
+        doc.file_size = 25 * 1024 * 1024  # 25 MB
+        msg_doc.document = doc
+
+        # Telegram cloud 20MB limit rejection
+        mock_bot.get_file.side_effect = Exception("Bad Request: file is too big")
+        with patch("app.handlers.agent.reply_safe", new=AsyncMock()) as mock_reply:
+            await bot.handle_document_upload(msg_doc, mock_bot, session_storage=storage)
+            mock_reply.assert_called_once()
+            reply_text = mock_reply.call_args[0][2]
+            assert "Download Failed" in reply_text
+            assert "20MB limit" in reply_text
+
+        # Generic failure
+        mock_bot.get_file.side_effect = Exception("Connection reset by peer")
+        with patch("app.handlers.agent.reply_safe", new=AsyncMock()) as mock_reply:
+            await bot.handle_document_upload(msg_doc, mock_bot, session_storage=storage)
+            mock_reply.assert_called_once()
+            assert "Connection reset by peer" in mock_reply.call_args[0][2]
+
+
+async def test_handle_save_to_workspace_callback(
+    tmp_path: Path,
+    storage: SessionStorage,
+) -> None:
+    # Setup downloads file and workspace
+    downloads_dir = tmp_path / "downloads"
+    workspace_dir = tmp_path / "my_workspace"
+    downloads_dir.mkdir(parents=True, exist_ok=True)
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    storage.set_workspace(12345, str(workspace_dir))
+
+    sample_file = downloads_dir / "report.pdf"
+    sample_file.write_text("dummy pdf content")
+
+    token = bot.path_mapper.encode(str(sample_file))
+    storage.add_pending_file(
+        12345,
+        "report.pdf",
+        str(sample_file),
+        len("dummy pdf content"),
+    )
+
+    call = make_mock_callback(user_id=12345)
+    cb_data = SaveToWorkspaceCallback(token=token)
+
+    await bot.handle_save_to_workspace_callback(call, cb_data, session_storage=storage)
+    call.answer.assert_called_once_with("✅ Saved to workspace!")
+    call.message.edit_text.assert_called_once()
+    assert "File Saved to Workspace" in call.message.edit_text.call_args[0][0]
+
+    # Verify copied file in workspace
+    dest = workspace_dir / "report.pdf"
+    assert dest.exists()
+    assert dest.read_text() == "dummy pdf content"
+
+    # Verify storage updated
+    pending = storage.get_pending_files(12345)
+    assert len(pending) == 1
+    assert pending[0]["saved_to_workspace"] is True
+    assert pending[0]["workspace_path"] == str(dest)
+
+
+async def test_handle_text_prompt_consumes_pending_files(
+    tmp_path: Path,
+    storage: SessionStorage,
+) -> None:
+    mock_bot = AsyncMock(spec=Bot)
+    storage.add_pending_file(
+        12345,
+        "script.py",
+        str(tmp_path / "downloads" / "script.py"),
+        500,
+    )
+
+    msg = make_mock_message(user_id=12345, text="Please explain what this script does.")
+    with patch("app.handlers.agent.process_agent_prompt", new=AsyncMock()) as mock_proc:
+        await bot.handle_text_prompt(msg, mock_bot, session_storage=storage)
+        mock_proc.assert_called_once()
+        prompt_arg = mock_proc.call_args[0][2]
+        assert (
+            "[System: user uploaded a 'script.py' to the downloads folder" in prompt_arg
+        )
+        assert "Please explain what this script does." in prompt_arg
+
+        # Pending files should now be consumed/cleared
+        assert len(storage.get_pending_files(12345)) == 0
+
+    # Second message should not have the system notice
+    msg2 = make_mock_message(user_id=12345, text="Now write a test for it.")
+    with patch(
+        "app.handlers.agent.process_agent_prompt",
+        new=AsyncMock(),
+    ) as mock_proc2:
+        await bot.handle_text_prompt(msg2, mock_bot, session_storage=storage)
+        mock_proc2.assert_called_once()
+        assert "[System:" not in mock_proc2.call_args[0][2]
+        assert mock_proc2.call_args[0][2] == "Now write a test for it."
+
+
+async def test_handle_commands_consume_pending_files(
+    tmp_path: Path,
+    storage: SessionStorage,
+) -> None:
+    mock_bot = AsyncMock(spec=Bot)
+    downloads_path = str(tmp_path / "downloads" / "main.py")
+    ws_path = str(tmp_path / "workspace" / "main.py")
+    storage.add_pending_file(12345, "main.py", downloads_path, 800)
+    storage.mark_file_saved_to_workspace(12345, downloads_path, ws_path)
+
+    # Test /smash
+    msg_smash = make_mock_message(user_id=12345, text="/smash fix errors")
+    with patch(
+        "app.handlers.agent.process_custom_agent_prompt",
+        new=AsyncMock(),
+    ) as mock_custom:
+        await bot.execute_smash(msg_smash, mock_bot, session_storage=storage)
+        mock_custom.assert_called_once()
+        smash_prompt = mock_custom.call_args[1]["prompt"]
+        assert "confirmed downloading to workspace at" in smash_prompt
+        assert "SMASH MODE INSTRUCTION" in smash_prompt
+        assert len(storage.get_pending_files(12345)) == 0
+
+
+async def test_handle_media_prompt_delegates_document(
+    tmp_path: Path,
+    storage: SessionStorage,
+) -> None:
+    mock_bot = AsyncMock(spec=Bot)
+    msg_doc = make_mock_message(user_id=12345)
+    msg_doc.photo = None
+    msg_doc.document = MagicMock()
+    msg_doc.document.file_id = "doc_del"
+    msg_doc.document.file_name = "del.txt"
+    msg_doc.document.file_size = 100
+
+    with patch(
+        "app.handlers.agent.handle_document_upload",
+        new=AsyncMock(),
+    ) as mock_upload:
+        await bot.handle_media_prompt(msg_doc, mock_bot, session_storage=storage)
+        mock_upload.assert_called_once_with(msg_doc, mock_bot, session_storage=storage)
 
 
 async def test_additional_callbacks(storage: SessionStorage) -> None:

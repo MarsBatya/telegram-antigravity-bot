@@ -109,9 +109,18 @@ TEMP_UPLOAD_DIR = os.getenv(
     "TEMP_UPLOAD_DIR",
     str(Path(tempfile.gettempdir()) / "antigravity_uploads"),
 ).strip()
+DOWNLOADS_DIR = os.getenv(
+    "DOWNLOADS_DIR",
+    str(PROJECT_ROOT / "downloads"),
+).strip()
 
 try:
     Path(DEFAULT_WORKSPACE).mkdir(parents=True, exist_ok=True)
+except OSError:
+    pass
+
+try:
+    Path(DOWNLOADS_DIR).mkdir(parents=True, exist_ok=True)
 except OSError:
     pass
 
