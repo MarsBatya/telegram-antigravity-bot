@@ -163,6 +163,8 @@ docker compose down
 - `agy-data`: Persists agent brain memory, conversations, and settings (`/root/.gemini/antigravity-cli`).
 - `bot-sessions`: Preserves active chat session IDs and state across container restarts (`/app/data/sessions.json`).
 - `bot-workspace`: Working directory where the agent creates and edits files (`/root/workspace`). To inspect or edit files directly on your host machine, you can bind-mount a host folder (e.g. `./workspace:/root/workspace`) by uncommenting Option B in `docker-compose.yml`.
+- `Option C` (Host OAuth token): Uncomment in `docker-compose.yml` to reuse your host `agy login` inside the container.
+- `Option D` (Host skills, plugins & MCP): Uncomment in `docker-compose.yml` (`~/.gemini/config:/root/.gemini/config:ro`) to share your custom global skills, plugins, rules, and `mcp_config.json` with the container agent.
 
 ### Method 2: Local Development with `uv`
 

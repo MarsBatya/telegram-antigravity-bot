@@ -37,6 +37,8 @@ services:
       # - ./workspace:${DEFAULT_WORKSPACE:-/root/workspace}
       # Option C: Host OAuth token (uncomment to use your host agy login inside Docker)
       # - ~/.gemini/antigravity-cli/antigravity-oauth-token:/root/.gemini/antigravity-cli/antigravity-oauth-token:ro
+      # Option D: Host global skills, plugins & MCP configs (uncomment to share custom skills/rules/tools)
+      # - ~/.gemini/config:/root/.gemini/config:ro
     deploy:
       resources:
         limits:
