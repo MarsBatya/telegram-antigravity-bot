@@ -29,11 +29,7 @@ from app.utils.helpers import PathMapper, mask_proxy_url
 logger = logging.getLogger("main")
 setup_logging()
 
-_bot_token = (
-    config.BOT_TOKEN
-    if (config.BOT_TOKEN and ":" in config.BOT_TOKEN)
-    else "123456:TEST_DUMMY_TOKEN"
-)
+_bot_token = config.BOT_TOKEN if (config.BOT_TOKEN and ":" in config.BOT_TOKEN) else "123456:TEST_DUMMY_TOKEN"
 
 
 def create_bot_session(proxy: str | None = None) -> AiohttpSession | None:
@@ -115,9 +111,7 @@ async def on_shutdown(
     """Shuts down active CLI processes and closes bot session on app exit."""
     logger.info("🛑 Shutting down bot, terminating active CLI processes...")
     target_storage = (
-        session_storage
-        or (router.get("session_storage") if router is not None else None)
-        or dp.get("session_storage")
+        session_storage or (router.get("session_storage") if router is not None else None) or dp.get("session_storage")
     )
     if isinstance(target_storage, SessionStorage):
         target_storage.cleanup_all_active_processes()

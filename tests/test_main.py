@@ -1,5 +1,5 @@
-from datetime import datetime, timezone
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -7,28 +7,9 @@ import pytest
 from aiogram import Bot
 from aiogram.types import CallbackQuery, Chat, Message, Update, User
 
+import main
 from app.core import config
 from app.core.storage import SessionStorage
-from app.handlers.explorer import _paginate_tree_entries
-from app.middlewares.auth import AuthMiddleware
-from app.ui.callbacks import (
-    BrowseDirCallback,
-    EffortCallback,
-    FileInfoCallback,
-    FileUploadCallback,
-    ModeCallback,
-    ModelCallback,
-    SaveToWorkspaceCallback,
-    SessionCallback,
-    WorkspaceCallback,
-)
-from app.ui.keyboards import get_file_details_keyboard, get_tree_keyboard
-from app.utils.helpers import (
-    _chunk_text_safely,
-    balance_html_chunks,
-    format_file_size,
-)
-import main
 from app.handlers.agent import (
     execute_goal,
     execute_plan,
@@ -42,12 +23,14 @@ from app.handlers.agent import (
 )
 from app.handlers.commands import (
     handle_cancel_command,
+    send_doctor,
     send_status,
     send_usage,
     send_welcome,
     show_bot_logs,
 )
 from app.handlers.explorer import (
+    _paginate_tree_entries,
     change_workspace,
     handle_browse_dir_callback,
     handle_file_info_callback,
@@ -74,7 +57,20 @@ from app.handlers.settings import (
     show_mode_picker,
     show_model_picker,
 )
+from app.middlewares.auth import AuthMiddleware
 from app.runner import agent_runner
+from app.ui.callbacks import (
+    BrowseDirCallback,
+    EffortCallback,
+    FileInfoCallback,
+    FileUploadCallback,
+    ModeCallback,
+    ModelCallback,
+    SaveToWorkspaceCallback,
+    SessionCallback,
+    WorkspaceCallback,
+)
+from app.ui.keyboards import get_file_details_keyboard, get_tree_keyboard
 from app.utils.bot_utils import (
     register_telegram_commands,
     reply_safe,
@@ -82,6 +78,9 @@ from app.utils.bot_utils import (
 )
 from app.utils.helpers import (
     PathMapper,
+    _chunk_text_safely,
+    balance_html_chunks,
+    format_file_size,
     is_authorized,
     make_progress_bar,
     mask_proxy_url,
@@ -210,6 +209,39 @@ async def test_auth_middleware_callback() -> None:
         )
 
 
+async def test_auth_middleware_group_chat() -> None:
+    middleware = AuthMiddleware()
+    next_handler = AsyncMock()
+
+    # Slash command in group -> rejected with Private Chat Only
+    with patch.object(config, "ALLOWED_USER_IDS", [12345]):
+        msg = make_mock_message(user_id=12345, text="/start")
+        msg.chat = Chat(id=-100123, type="group")
+        await middleware(next_handler, msg, {"event_from_user": msg.from_user})
+        next_handler.assert_not_called()
+        msg.answer.assert_called_once()
+        assert "Private Chat Only" in msg.answer.call_args[0][0]
+
+    # Non-command in group -> silently ignored
+    next_handler.reset_mock()
+    with patch.object(config, "ALLOWED_USER_IDS", [12345]):
+        msg = make_mock_message(user_id=12345, text="regular group chatter")
+        msg.chat = Chat(id=-100123, type="group")
+        await middleware(next_handler, msg, {"event_from_user": msg.from_user})
+        next_handler.assert_not_called()
+        msg.answer.assert_not_called()
+
+    # Callback in group -> alert answered
+    next_handler.reset_mock()
+    with patch.object(config, "ALLOWED_USER_IDS", [12345]):
+        call = make_mock_callback(user_id=12345)
+        call.message.chat = Chat(id=-100123, type="group")
+        await middleware(next_handler, call, {"event_from_user": call.from_user})
+        next_handler.assert_not_called()
+        call.answer.assert_called_once()
+        assert "private 1-on-1 chats" in call.answer.call_args[0][0]
+
+
 async def test_send_long_message_short() -> None:
     mock_bot = AsyncMock(spec=Bot)
     await send_long_message(mock_bot, 123, "short text")
@@ -218,6 +250,18 @@ async def test_send_long_message_short() -> None:
         "short text",
         parse_mode="HTML",
         reply_markup=None,
+    )
+
+
+async def test_send_long_message_disable_notification() -> None:
+    mock_bot = AsyncMock(spec=Bot)
+    await send_long_message(mock_bot, 123, "alert text", disable_notification=False)
+    mock_bot.send_message.assert_called_once_with(
+        123,
+        "alert text",
+        parse_mode="HTML",
+        reply_markup=None,
+        disable_notification=False,
     )
 
 
@@ -271,7 +315,7 @@ async def test_register_telegram_commands() -> None:
     assert success is True
     mock_bot.set_my_commands.assert_called_once()
     commands = mock_bot.set_my_commands.call_args[0][0]
-    assert len(commands) == 18
+    assert len(commands) == 19
 
     # When set_my_commands raises
     mock_bot.set_my_commands.side_effect = Exception("Telegram API error")
@@ -347,9 +391,7 @@ async def test_command_model_picker_injected_model_manager(
             model_manager=custom_mgr,
         )
         mock_reply.assert_called_once()
-        markup = (
-            mock_reply.call_args[1].get("reply_markup") or mock_reply.call_args[0][3]
-        )
+        markup = mock_reply.call_args[1].get("reply_markup") or mock_reply.call_args[0][3]
         button_texts = [btn.text for row in markup.inline_keyboard for btn in row]
         assert any("Custom Injected" in text for text in button_texts)
 
@@ -481,10 +523,7 @@ async def test_command_cancel_and_stop(storage: SessionStorage) -> None:
             msg = make_mock_message(user_id=12345, text="/cancel")
             await handle_cancel_command(msg, mock_bot, session_storage=storage)
             mock_reply.assert_called_once()
-            assert (
-                "No AI execution process is currently running"
-                in mock_reply.call_args[0][2]
-            )
+            assert "No AI execution process is currently running" in mock_reply.call_args[0][2]
 
 
 async def test_command_logs() -> None:
@@ -525,6 +564,19 @@ async def test_command_status_and_usage(storage: SessionStorage) -> None:
             await send_usage(msg, mock_bot, session_storage=storage)
             mock_reply.assert_called_once()
             assert "Active Conversation Session Capacity" in mock_reply.call_args[0][2]
+
+
+async def test_command_doctor(storage: SessionStorage) -> None:
+    mock_bot = AsyncMock(spec=Bot)
+    with patch("app.handlers.commands.reply_safe", new=AsyncMock()) as mock_reply:
+        msg = make_mock_message(user_id=12345, text="/doctor")
+        await send_doctor(msg, mock_bot, session_storage=storage)
+        mock_reply.assert_called_once()
+        report = mock_reply.call_args[0][2]
+        assert "Antigravity Bot Diagnostic Doctor" in report
+        assert "AGY CLI" in report
+        assert "Workspace" in report
+        assert "Environment" in report
 
 
 async def test_command_new_session(storage: SessionStorage) -> None:
@@ -695,9 +747,7 @@ async def test_handle_session_selection(storage: SessionStorage) -> None:
         )
         mock_reset.assert_called_once_with(12345)
         call.answer.assert_called_once_with("Starting new session.")
-        assert (
-            "New Conversation Session Started" in call.message.edit_text.call_args[0][0]
-        )
+        assert "New Conversation Session Started" in call.message.edit_text.call_args[0][0]
 
     # Select existing session
     with patch.object(storage, "set_active_session") as mock_set:
@@ -880,10 +930,7 @@ async def test_handle_document_upload_with_caption(
             mock_proc.assert_called_once()
 
             prompt_arg = mock_proc.call_args[0][2]
-            assert (
-                "[System: user uploaded a 'code.py' to the downloads folder"
-                in prompt_arg
-            )
+            assert "[System: user uploaded a 'code.py' to the downloads folder" in prompt_arg
             assert "Fix bugs in this file" in prompt_arg
             # Pending files should be cleared because it reacted immediately
             assert len(storage.get_pending_files(12345)) == 0
@@ -1025,9 +1072,7 @@ async def test_handle_text_prompt_consumes_pending_files(
         await handle_text_prompt(msg, mock_bot, session_storage=storage)
         mock_proc.assert_called_once()
         prompt_arg = mock_proc.call_args[0][2]
-        assert (
-            "[System: user uploaded a 'script.py' to the downloads folder" in prompt_arg
-        )
+        assert "[System: user uploaded a 'script.py' to the downloads folder" in prompt_arg
         assert "Please explain what this script does." in prompt_arg
 
         # Pending files should now be consumed/cleared
@@ -1134,19 +1179,13 @@ async def test_additional_callbacks(
     with patch.object(storage, "cancel_chat_process", return_value=True):
         await handle_cancel_callback(call_cancel, session_storage=storage)
         call_cancel.answer.assert_called_once_with("Process cancelled!")
-        assert (
-            "Execution Cancelled by User"
-            in call_cancel.message.edit_text.call_args[0][0]
-        )
+        assert "Execution Cancelled by User" in call_cancel.message.edit_text.call_args[0][0]
 
     # open_effort_menu
     call_effort = make_mock_callback(user_id=12345)
     await handle_open_effort_menu(call_effort, session_storage=storage)
     call_effort.message.edit_text.assert_called_once()
-    assert (
-        "Antigravity Reasoning Effort Level"
-        in call_effort.message.edit_text.call_args[0][0]
-    )
+    assert "Antigravity Reasoning Effort Level" in call_effort.message.edit_text.call_args[0][0]
 
     # browse_dir callback
     call_dir = make_mock_callback(user_id=12345)
@@ -1211,14 +1250,8 @@ def test_mask_proxy_url() -> None:
     assert mask_proxy_url(None) == ""
     assert mask_proxy_url("") == ""
     assert mask_proxy_url("http://127.0.0.1:8080") == "http://127.0.0.1:8080"
-    assert (
-        mask_proxy_url("http://admin:secret123@proxy.example.com:8080")
-        == "http://admin:***@proxy.example.com:8080"
-    )
-    assert (
-        mask_proxy_url("socks5://user:pass@127.0.0.1:1080")
-        == "socks5://user:***@127.0.0.1:1080"
-    )
+    assert mask_proxy_url("http://admin:secret123@proxy.example.com:8080") == "http://admin:***@proxy.example.com:8080"
+    assert mask_proxy_url("socks5://user:pass@127.0.0.1:1080") == "socks5://user:***@127.0.0.1:1080"
 
 
 def test_create_bot_session_explicit_proxy() -> None:

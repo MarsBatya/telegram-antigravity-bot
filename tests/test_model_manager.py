@@ -31,9 +31,7 @@ def test_model_manager_resolve_model_id() -> None:
     assert mgr.resolve_model_id("3.8-high") == "gemini-3.8-flash-high"
 
     # Display name match
-    assert (
-        mgr.resolve_model_id("Gemini 3.8 Flash (Medium)") == "gemini-3.8-flash-medium"
-    )
+    assert mgr.resolve_model_id("Gemini 3.8 Flash (Medium)") == "gemini-3.8-flash-medium"
     assert mgr.resolve_model_id("Claude Sonnet 4.6") == "claude-sonnet-4-6"
 
     # Unknown model fallback as-is
@@ -113,10 +111,7 @@ def test_model_manager_fetch_with_token_file(tmp_path: Path) -> None:
 def test_model_manager_fetch_from_cli() -> None:
     mgr = ModelManager(agy_path="agy")
     mgr._allow_cli_fetch = True
-    fake_stdout = (
-        "gemini-3.8-flash-high\tGemini 3.8 Flash (High)\n"
-        "claude-sonnet-4-6\tClaude Sonnet 4.6 (Thinking)\n"
-    )
+    fake_stdout = "gemini-3.8-flash-high\tGemini 3.8 Flash (High)\nclaude-sonnet-4-6\tClaude Sonnet 4.6 (Thinking)\n"
     mock_res = MagicMock(returncode=0, stdout=fake_stdout)
     with (
         patch("shutil.which", return_value="/mock/bin/agy"),

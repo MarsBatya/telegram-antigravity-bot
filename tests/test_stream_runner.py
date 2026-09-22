@@ -1,11 +1,10 @@
 import base64
-from datetime import datetime, timedelta, timezone
 import json
 import os
-from pathlib import Path
 import time
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from unittest.mock import MagicMock, patch
-
 
 from app.core import config
 from app.core.storage import SessionStorage
@@ -129,9 +128,7 @@ def test_calculate_session_tokens(tmp_path: Path) -> None:
     assert total == 400
 
     # Non-existent conversation
-    assert (
-        stream_runner.calculate_session_tokens("non-existent", brain_dir=brain_dir) == 0
-    )
+    assert stream_runner.calculate_session_tokens("non-existent", brain_dir=brain_dir) == 0
 
 
 def test_get_recent_sessions(tmp_path: Path) -> None:
@@ -200,18 +197,13 @@ def test_rename_and_delete_session(tmp_path: Path) -> None:
         )
 
     # Rename existing
-    assert (
-        stream_runner.rename_session(conv_id, "New Title", brain_dir=brain_dir) is True
-    )
+    assert stream_runner.rename_session(conv_id, "New Title", brain_dir=brain_dir) is True
     with open(transcript_file, "r", encoding="utf-8") as f:
         content = f.read()
         assert "New Title" in content
 
     # Rename non-existing
-    assert (
-        stream_runner.rename_session("missing", "New Title", brain_dir=brain_dir)
-        is False
-    )
+    assert stream_runner.rename_session("missing", "New Title", brain_dir=brain_dir) is False
 
     # Delete existing
     assert stream_runner.delete_session(conv_id, brain_dir=brain_dir) is True
@@ -318,10 +310,7 @@ def test_fetch_available_models_live(tmp_path: Path) -> None:
     token_file = str(tmp_path / "oauth-token.json")
 
     # Missing file
-    assert (
-        stream_runner.fetch_available_models_live(token_file=str(tmp_path / "missing"))
-        == []
-    )
+    assert stream_runner.fetch_available_models_live(token_file=str(tmp_path / "missing")) == []
 
     # File without access token
     with open(token_file, "w", encoding="utf-8") as f:
@@ -417,9 +406,7 @@ def test_fetch_live_user_quota_summary(tmp_path: Path) -> None:
                     {
                         "displayName": "Pro Requests",
                         "remainingFraction": 0.75,
-                        "resetTime": (
-                            datetime.now(timezone.utc) + timedelta(hours=2)
-                        ).isoformat(),
+                        "resetTime": (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat(),
                         "description": "Per day quota",
                     },
                     {
@@ -507,9 +494,7 @@ def test_run_antigravity_stream_streaming_events(
     ]
 
     mock_process = MagicMock()
-    mock_process.stdout.readline.side_effect = [
-        line + "\n" for line in stream_lines
-    ] + [""]
+    mock_process.stdout.readline.side_effect = [line + "\n" for line in stream_lines] + [""]
     mock_process.wait.return_value = 0
 
     progress_messages = []
@@ -538,9 +523,7 @@ def test_run_smash_and_resume_stream(storage: SessionStorage) -> None:
         mock_run.return_value = ("Success", {}, [])
 
         # Smash prompt
-        smash_prompt = (
-            "💥 SMASH MODE INSTRUCTION: Complete the following task: Fix everything"
-        )
+        smash_prompt = "💥 SMASH MODE INSTRUCTION: Complete the following task: Fix everything"
         stream_runner.run_antigravity_stream(smash_prompt, 555, storage=storage)
         mock_run.assert_called_once()
         prompt_arg = mock_run.call_args[0][0]
@@ -574,10 +557,7 @@ def test_rename_session_with_metadata_header(tmp_path: Path) -> None:
             + "\n",
         )
 
-    assert (
-        stream_runner.rename_session(conv_id, "Renamed Goal", brain_dir=brain_dir)
-        is True
-    )
+    assert stream_runner.rename_session(conv_id, "Renamed Goal", brain_dir=brain_dir) is True
 
     with open(transcript_file, "r", encoding="utf-8") as f:
         lines = f.readlines()
@@ -691,6 +671,7 @@ def test_run_antigravity_stream_registers_active_process(
 
 def test_atomic_session_persistence_concurrent(tmp_path: Path) -> None:
     import concurrent.futures
+
     from app.core.storage import SessionStorage
 
     session_file = str(tmp_path / "concurrent_sessions.json")
@@ -1074,8 +1055,7 @@ def test_persona_prompt_injected_only_on_first_turn(
                 assert storage.get_active_session(chat_id) is None
 
                 mock_process.stdout.readline.side_effect = [
-                    json.dumps({"event": "init", "conversation_id": "conv-test-456"})
-                    + "\n",
+                    json.dumps({"event": "init", "conversation_id": "conv-test-456"}) + "\n",
                     json.dumps(
                         {
                             "event": "result",
@@ -1118,9 +1098,7 @@ def test_run_antigravity_stream_real_turn1_replay(
     os.chmod(agy_mock, 0o755)  # noqa: S103
 
     mock_process = MagicMock()
-    mock_process.stdout.readline.side_effect = [
-        line + "\n" for line in stream_lines
-    ] + [""]
+    mock_process.stdout.readline.side_effect = [line + "\n" for line in stream_lines] + [""]
     mock_process.wait.return_value = 0
     mock_process.returncode = 0
 
@@ -1237,8 +1215,9 @@ def test_format_progress_card_with_draft_preview() -> None:
 
 def test_setup_logging_creates_file(tmp_path: Path) -> None:
     """Verifies that setup_logging configures file handler and writes logs."""
-    from app.core.logging_config import setup_logging
     import logging
+
+    from app.core.logging_config import setup_logging
 
     test_log = tmp_path / "test_bot.log"
     setup_logging(log_file=test_log)

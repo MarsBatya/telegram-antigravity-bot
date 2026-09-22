@@ -1,30 +1,32 @@
 import base64
-from collections import deque
-from collections.abc import Callable
 import contextlib
-from datetime import datetime, timezone
 import html
 import json
 import logging
 import os
-from pathlib import Path
 import re
 import shutil
 import subprocess
 import sys
 import threading
 import time
-from typing import Any
 import urllib.error
 import urllib.request
+from collections import deque
+from collections.abc import Callable
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
 
 from app.core import config
+from app.core.model_manager import ModelManager
 from app.core.storage import (
     SessionStorage,
     _terminate_process_and_group,
+)
+from app.core.storage import (
     calculate_session_tokens as calculate_session_tokens,
 )
-from app.core.model_manager import ModelManager
 from app.utils.helpers import make_progress_bar
 
 logger = logging.getLogger(__name__)
@@ -69,6 +71,13 @@ def fetch_live_user_quota_summary(token_file: str | None = None) -> str:
         DEFAULT_OAUTH_TOKEN_PATH,
     )
     if not os.path.exists(target_token_file):
+        if getattr(config, "GEMINI_API_KEY", None) or os.getenv("GEMINI_API_KEY"):
+            return (
+                "ℹ️ <b>Live Quota Information:</b>\n"
+                "<i>Live Cloud Code quota is only available with OAuth "
+                "token authentication. You are currently connected via "
+                "GEMINI_API_KEY (Gemini models only).</i>"
+            )
         return "⚠️ <b>OAuth token file not found on server.</b>"
 
     try:
@@ -81,7 +90,7 @@ def fetch_live_user_quota_summary(token_file: str | None = None) -> str:
         if not access_token:
             return "⚠️ <b>Invalid OAuth access token.</b>"
 
-        email = "daffaventure@gmail.com"
+        email = "Unknown"
         if id_token and "." in id_token:
             with contextlib.suppress(Exception):
                 payload_b64 = id_token.split(".")[1]
@@ -153,14 +162,14 @@ def fetch_available_models_live(
 
 def fetch_bot_logs(lines_count: int = 30) -> str:
     """Fetches systemd service logs or local file logs for antigravity-bot."""
-    journalctl_bin = shutil.which("journalctl") or (
-        "/usr/bin/journalctl" if sys.platform != "win32" else None
-    )
+    journalctl_bin = shutil.which("journalctl") or ("/usr/bin/journalctl" if sys.platform != "win32" else None)
     if journalctl_bin:
         try:
             res = subprocess.run(  # noqa: S603
                 [
                     journalctl_bin,
+                    "-u",
+                    "telegram-antigravity-bot",
                     "-u",
                     "antigravity-bot",
                     "-n",
@@ -312,9 +321,7 @@ def rename_session(conv_id: str, new_name: str, brain_dir: str | None = None) ->
                                 )
                                 data["content"] = new_content
                             else:
-                                data["content"] = (
-                                    f"<USER_REQUEST>\n{new_name}\n</USER_REQUEST>"
-                                )
+                                data["content"] = f"<USER_REQUEST>\n{new_name}\n</USER_REQUEST>"
                             lines.append(json.dumps(data) + "\n")
                             renamed = True
                             continue
@@ -584,15 +591,9 @@ def format_tool_step_description(
     duration_seconds: float | None = None,
 ) -> str:
     """Formats an individual tool execution into a readable HTML step snippet."""
-    dur_str = (
-        f" <i>({duration_seconds:.2f}s)</i>"
-        if (done and duration_seconds is not None)
-        else ""
-    )
+    dur_str = f" <i>({duration_seconds:.2f}s)</i>" if (done and duration_seconds is not None) else ""
     if tool_name in _TOOL_STEP_CONFIG:
-        keys, act_tmpl, act_def, done_tmpl, done_def, max_len, kind = _TOOL_STEP_CONFIG[
-            tool_name
-        ]
+        keys, act_tmpl, act_def, done_tmpl, done_def, max_len, kind = _TOOL_STEP_CONFIG[tool_name]
         val = _format_tool_param(params, keys, max_len, kind)
         if done:
             base = done_tmpl.format(html.escape(val)) if val else done_def
@@ -625,41 +626,25 @@ def format_progress_card(  # noqa: C901
     clean_draft = draft_preview.strip()
     preview_block = ""
     if clean_draft:
-        preview_text = (
-            clean_draft
-            if len(clean_draft) <= 220
-            else clean_draft[:200].rstrip() + "..."
-        )
+        preview_text = clean_draft if len(clean_draft) <= 220 else clean_draft[:200].rstrip() + "..."
         preview_escaped = html.escape(preview_text)
         preview_block = f"<blockquote expandable>{preview_escaped}</blockquote>"
 
     if not completed_steps:
         act_lower = active_activity.lower().strip()
         if preview_block:
-            return (
-                f"✍️ <b>Drafting response...</b> <i>({elapsed_seconds}s)</i>\n\n"
-                f"{preview_block}"
-            )
+            return f"✍️ <b>Drafting response...</b> <i>({elapsed_seconds}s)</i>\n\n{preview_block}"
         if act_lower.startswith("thinking"):
             return f"🧠 <b>Thinking...</b> <i>({elapsed_seconds}s)</i>"
         if act_lower.startswith("drafting"):
             return f"✍️ <b>Drafting response...</b> <i>({elapsed_seconds}s)</i>"
-        disp_act = (
-            active_activity[:80] + "..."
-            if len(active_activity) > 80
-            else active_activity
-        )
-        return (
-            f"⚡ <b>Working...</b> <i>({elapsed_seconds}s)</i>\n\n"
-            f"{spinner_frame} <i>{disp_act}</i>"
-        )
+        disp_act = active_activity[:80] + "..." if len(active_activity) > 80 else active_activity
+        return f"⚡ <b>Working...</b> <i>({elapsed_seconds}s)</i>\n\n{spinner_frame} <i>{disp_act}</i>"
 
     header = f"⚡ <b>Working...</b> <i>({elapsed_seconds}s)</i>"
     if len(completed_steps) > 5:
         earlier_count = len(completed_steps) - 4
-        rendered_steps = [f"<i>... {earlier_count} earlier steps</i>"] + [
-            f"✓ {s}" for s in completed_steps[-4:]
-        ]
+        rendered_steps = [f"<i>... {earlier_count} earlier steps</i>"] + [f"✓ {s}" for s in completed_steps[-4:]]
     else:
         rendered_steps = [f"✓ {s}" for s in completed_steps]
 
@@ -675,18 +660,10 @@ def format_progress_card(  # noqa: C901
     elif act_lower == "done":
         active_line = ""
     else:
-        disp_act = (
-            active_activity[:80] + "..."
-            if len(active_activity) > 80
-            else active_activity
-        )
+        disp_act = active_activity[:80] + "..." if len(active_activity) > 80 else active_activity
         active_line = f"{spinner_frame} <i>{disp_act}</i>"
 
-    card = (
-        f"{header}\n\n{steps_block}\n\n{active_line}"
-        if active_line
-        else f"{header}\n\n{steps_block}"
-    )
+    card = f"{header}\n\n{steps_block}\n\n{active_line}" if active_line else f"{header}\n\n{steps_block}"
     if len(card) > 3500:
         card = card[:3400] + "\n<i>... (truncated)</i>"
     return card
@@ -816,18 +793,9 @@ def run_antigravity_stream(  # noqa: C901
         cwd = workspace_dir or target_storage.get_workspace(chat_id)
         Path(cwd).mkdir(parents=True, exist_ok=True)
 
-        model = (
-            target_storage.get_setting(chat_id, "model", config.DEFAULT_MODEL)
-            or config.DEFAULT_MODEL
-        )
-        effort = (
-            target_storage.get_setting(chat_id, "effort", config.DEFAULT_EFFORT)
-            or config.DEFAULT_EFFORT
-        )
-        mode = (
-            target_storage.get_setting(chat_id, "mode", config.DEFAULT_MODE)
-            or config.DEFAULT_MODE
-        )
+        model = target_storage.get_setting(chat_id, "model", config.DEFAULT_MODEL) or config.DEFAULT_MODEL
+        effort = target_storage.get_setting(chat_id, "effort", config.DEFAULT_EFFORT) or config.DEFAULT_EFFORT
+        mode = target_storage.get_setting(chat_id, "mode", config.DEFAULT_MODE) or config.DEFAULT_MODE
 
         conv_target = target_storage.get_active_session(chat_id)
         is_new_conversation = not conv_target
@@ -874,8 +842,7 @@ def run_antigravity_stream(  # noqa: C901
             is_win = sys.platform == "win32"
             use_shell = is_win and agy_exec.lower().endswith((".cmd", ".bat"))
             logger.info(
-                "Starting agy stream execution: chat_id=%s, model=%s, effort=%s, "
-                "mode=%s, cwd=%s, conv=%s",
+                "Starting agy stream execution: chat_id=%s, model=%s, effort=%s, mode=%s, cwd=%s, conv=%s",
                 chat_id,
                 model,
                 effort,
@@ -981,11 +948,7 @@ def run_antigravity_stream(  # noqa: C901
                         )
 
                         if step_type == "agent_response":
-                            delta = (
-                                step.get("text_delta")
-                                or step.get("response")
-                                or step.get("text")
-                            )
+                            delta = step.get("text_delta") or step.get("response") or step.get("text")
                             if delta:
                                 if not final_response:
                                     logger.info(
@@ -998,8 +961,7 @@ def run_antigravity_stream(  # noqa: C901
                                 thk = (usage or {}).get("thinking_tokens", 0)
                                 if thk > 0:
                                     logger.info(
-                                        "Reasoning step done [chat %s]: "
-                                        "thinking_tokens=%d, dur=%.2fs",
+                                        "Reasoning step done [chat %s]: thinking_tokens=%d, dur=%.2fs",
                                         chat_id,
                                         thk,
                                         dur or 0.0,
@@ -1034,11 +996,7 @@ def run_antigravity_stream(  # noqa: C901
                                 target = params.get("TargetFile") or params.get(
                                     "ImageName",
                                 )
-                                if (
-                                    target
-                                    and os.path.exists(target)
-                                    and target not in generated_files
-                                ):
+                                if target and os.path.exists(target) and target not in generated_files:
                                     generated_files.append(target)
 
                             if state == "ACTIVE":
@@ -1073,11 +1031,7 @@ def run_antigravity_stream(  # noqa: C901
                             elif state == "ERROR" or step.get("error"):
                                 err_text = (
                                     step.get("error")
-                                    or (
-                                        tool_info.get("error")
-                                        if isinstance(tool_info, dict)
-                                        else ""
-                                    )
+                                    or (tool_info.get("error") if isinstance(tool_info, dict) else "")
                                     or "Execution failed"
                                 )
                                 logger.error(
@@ -1086,10 +1040,7 @@ def run_antigravity_stream(  # noqa: C901
                                     tool_name,
                                     err_text,
                                 )
-                                desc = (
-                                    f"❌ {html.escape(tool_name)}: "
-                                    f"{html.escape(str(err_text))}"
-                                )
+                                desc = f"❌ {html.escape(tool_name)}: {html.escape(str(err_text))}"
                                 tracker.add_completed_step(
                                     desc,
                                     next_activity="Thinking next step...",
@@ -1108,8 +1059,7 @@ def run_antigravity_stream(  # noqa: C901
                         res_err = res.get("error", "")
                         res_text = res.get("response", "")
                         logger.info(
-                            "Stream result [chat %s]: status=%s, turns=%s, "
-                            "dur=%.2fs, usage=%s",
+                            "Stream result [chat %s]: status=%s, turns=%s, dur=%.2fs, usage=%s",
                             chat_id,
                             status,
                             res.get("num_turns"),
@@ -1123,9 +1073,7 @@ def run_antigravity_stream(  # noqa: C901
                                 res_err,
                             )
                             err_desc = html.escape(res_err or "Execution failed")
-                            final_response = (
-                                f"❌ <b>Antigravity Error:</b>\n<code>{err_desc}</code>"
-                            )
+                            final_response = f"❌ <b>Antigravity Error:</b>\n<code>{err_desc}</code>"
                         elif res_text:
                             final_response = res_text
                         if res.get("usage"):
@@ -1162,9 +1110,7 @@ def run_antigravity_stream(  # noqa: C901
                             f"</code></pre>"
                         )
                     else:
-                        final_response = (
-                            f"❌ <b>Antigravity CLI Failed (Exit Code {ret_code})</b>"
-                        )
+                        final_response = f"❌ <b>Antigravity CLI Failed (Exit Code {ret_code})</b>"
             elif not final_response or not final_response.strip():
                 if tracker.completed_steps:
                     final_response = "✅ Task completed (no output text produced)."

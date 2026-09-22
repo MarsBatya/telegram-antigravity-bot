@@ -1,5 +1,9 @@
+import contextlib
 import html
 import os
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 import psutil
@@ -63,6 +67,7 @@ async def send_welcome(
         "📂 <code>/workspace [path]</code> - AI Synced Target Workspace\n"
         "📊 <code>/usage</code> - Live Models & Quota + Token Usage\n"
         "💻 <code>/status</code> - Check RAM, Disk, CPU & AI status\n"
+        "🩺 <code>/doctor</code> - Pre-flight health check & diagnostic doctor\n"
         "📜 <code>/logs</code> - View activity logs & bot service logs\n"
         "💥 <code>/smash &lt;description&gt;</code> - Smash bug mode until done\n"
         "🎯 <code>/goal &lt;description&gt;</code> - Execute specific task / goal\n"
@@ -78,6 +83,92 @@ async def send_welcome(
     await reply_safe(bot, message, help_text, reply_markup=get_main_reply_keyboard())
 
 
+@router.message(Command(commands=["doctor"]))
+async def send_doctor(
+    message: Message,
+    bot: Bot,
+    session_storage: SessionStorage,
+) -> None:
+    chat_id = message.chat.id
+    lines: list[str] = ["🩺 <b>Antigravity Bot Diagnostic Doctor</b>\n"]
+
+    # 1. Antigravity CLI binary & version
+    agy_exec = shutil.which(config.AGY_PATH) or config.AGY_PATH
+    if os.path.exists(agy_exec) or shutil.which(config.AGY_PATH):
+        version_str = "Unknown"
+        with contextlib.suppress(Exception):
+            res = subprocess.run(  # noqa: S603
+                [agy_exec, "--version"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if res.returncode == 0 and res.stdout.strip():
+                version_str = res.stdout.strip().splitlines()[0]
+        lines.append(f"✅ <b>AGY CLI:</b> Found (<code>v{version_str}</code>)\n   <code>{html.escape(agy_exec)}</code>")
+    else:
+        lines.append(
+            f"❌ <b>AGY CLI:</b> Binary not found at <code>{html.escape(config.AGY_PATH)}</code>\n"
+            "   <i>Install via curl -fsSL https://antigravity.google/cli/install.sh | bash</i>"
+        )
+
+    # 2. Authentication
+    oauth_file = getattr(config, "OAUTH_TOKEN_PATH", "")
+    gemini_key = getattr(config, "GEMINI_API_KEY", "") or os.getenv("GEMINI_API_KEY", "")
+    if oauth_file and os.path.exists(oauth_file):
+        lines.append(f"✅ <b>Authentication:</b> OAuth token present\n   <code>{html.escape(oauth_file)}</code>")
+    elif gemini_key:
+        masked_key = gemini_key[:4] + "..." + gemini_key[-4:] if len(gemini_key) > 8 else "***"
+        lines.append(f"✅ <b>Authentication:</b> Gemini API Key configured (<code>{masked_key}</code>)")
+    else:
+        lines.append(
+            "⚠️ <b>Authentication:</b> No OAuth token or Gemini API Key found!\n"
+            "   <i>Run <code>agy login</code> on host or set GEMINI_API_KEY in .env</i>"
+        )
+
+    # 3. Target Workspace
+    user_ws = session_storage.get_workspace(chat_id)
+    if os.path.exists(user_ws):
+        probe = os.path.join(user_ws, ".doctor_probe.tmp")
+        try:
+            with open(probe, "w", encoding="utf-8") as f:
+                f.write("ok")
+            os.remove(probe)
+            lines.append(f"✅ <b>Workspace:</b> Exists & Writable\n   <code>{html.escape(user_ws)}</code>")
+        except Exception as e:
+            lines.append(
+                f"❌ <b>Workspace:</b> Permission Error: {html.escape(str(e))}\n   <code>{html.escape(user_ws)}</code>"
+            )
+    else:
+        try:
+            os.makedirs(user_ws, exist_ok=True)
+            lines.append(f"✅ <b>Workspace:</b> Directory created successfully\n   <code>{html.escape(user_ws)}</code>")
+        except Exception as e:
+            lines.append(f"❌ <b>Workspace:</b> Cannot create directory: {html.escape(str(e))}")
+
+    # 4. Persistence
+    session_file = getattr(config, "SESSION_FILE", "")
+    if os.path.exists(session_file):
+        lines.append(f"✅ <b>Session DB:</b> Active (<code>{html.escape(session_file)}</code>)")
+    else:
+        lines.append("ℹ️ <b>Session DB:</b> Not yet created on disk (initializes on first chat)")
+
+    # 5. Network / Proxy
+    proxy = config.get_http_proxy()
+    if proxy:
+        masked_p = mask_proxy_url(proxy)
+        lines.append(f"🌐 <b>Proxy:</b> Configured (<code>{html.escape(masked_p)}</code>)")
+    else:
+        lines.append("🌐 <b>Proxy:</b> Direct connection (No proxy configured)")
+
+    # 6. Environment
+    py_ver = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+    lines.append(f"⚙️ <b>Environment:</b> Python {py_ver} on {sys.platform}")
+
+    report = "\n\n".join(lines)
+    await reply_safe(bot, message, report)
+
+
 @router.message(Command(commands=["logs"]))
 async def show_bot_logs(message: Message, bot: Bot) -> None:
     logs = agent_runner.fetch_bot_logs(lines_count=25)
@@ -85,8 +176,7 @@ async def show_bot_logs(message: Message, bot: Bot) -> None:
     await send_long_message(
         bot,
         message.chat.id,
-        f"📜 <b>Recent Bot Service Activity Logs:</b>\n"
-        f"<pre><code>{clean_logs}</code></pre>",
+        f"📜 <b>Recent Bot Service Activity Logs:</b>\n<pre><code>{clean_logs}</code></pre>",
     )
 
 
@@ -122,9 +212,7 @@ async def send_status(
         ram = psutil.virtual_memory()
         user_ws = session_storage.get_workspace(chat_id)
         target_disk = (
-            user_ws
-            if (user_ws and os.path.exists(user_ws))
-            else (str(Path.cwd().anchor) if Path.cwd().anchor else "/")
+            user_ws if (user_ws and os.path.exists(user_ws)) else (str(Path.cwd().anchor) if Path.cwd().anchor else "/")
         )
         disk = psutil.disk_usage(target_disk)
         usage = session_storage.get_token_usage(chat_id)
@@ -154,11 +242,7 @@ async def send_status(
             session_proxy = config.HTTP_PROXY
 
         masked_proxy = mask_proxy_url(str(session_proxy)) if session_proxy else ""
-        proxy_line = (
-            f"\n🌐 <b>Telegram Proxy:</b> <code>{html.escape(masked_proxy)}</code>"
-            if session_proxy
-            else ""
-        )
+        proxy_line = f"\n🌐 <b>Telegram Proxy:</b> <code>{html.escape(masked_proxy)}</code>" if session_proxy else ""
 
         status_text = (
             "📊 <b>Server & AI Engine Status</b>\n\n"

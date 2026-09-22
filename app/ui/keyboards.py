@@ -138,11 +138,7 @@ def _build_windows_drive_buttons(
 
     import string
 
-    available_drives = [
-        f"{letter}:\\"
-        for letter in string.ascii_uppercase
-        if os.path.exists(f"{letter}:\\")
-    ]
+    available_drives = [f"{letter}:\\" for letter in string.ascii_uppercase if os.path.exists(f"{letter}:\\")]
     if len(available_drives) <= 1:
         return []
 

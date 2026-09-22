@@ -25,10 +25,28 @@ class AuthMiddleware(BaseMiddleware):
 
         user_id = user.id
         user_name = user.username or user.first_name or "User"
-        event_desc = (
-            getattr(event, "text", None) or getattr(event, "data", None) or "<event>"
-        )
+        event_desc = getattr(event, "text", None) or getattr(event, "data", None) or "<event>"
         print(f"[RECV] From User ID: {user_id} (@{user_name}) - {event_desc}")
+
+        chat = getattr(event, "chat", None)
+        if chat is None and isinstance(event, CallbackQuery):
+            chat = getattr(event.message, "chat", None)
+
+        if chat and getattr(chat, "type", "private") != "private":
+            text = getattr(event, "text", "") or ""
+            if isinstance(event, Message) and text.startswith("/"):
+                await event.answer(
+                    "🔒 <b>Private Chat Only</b>\n\n"
+                    "For security and to protect server execution, "
+                    "this bot only operates in private 1-on-1 chats.",
+                    parse_mode="HTML",
+                )
+            elif isinstance(event, CallbackQuery):
+                await event.answer(
+                    "🔒 This bot only operates in private 1-on-1 chats.",
+                    show_alert=True,
+                )
+            return None
 
         if not config.ALLOWED_USER_IDS:
             if isinstance(event, Message):

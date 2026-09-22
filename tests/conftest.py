@@ -1,5 +1,6 @@
 from pathlib import Path
 from typing import Any
+
 import pytest
 
 from app.core.model_manager import ModelManager

@@ -75,10 +75,7 @@ async def execute_resume(
         from app.handlers.agent import process_custom_agent_prompt
 
         resume_prompt = args[1].strip()
-        status_text = (
-            "▶️ <b>RESUME MODE!</b>\n"
-            "🔄 <i>Resuming conversation session from the last context...</i>"
-        )
+        status_text = "▶️ <b>RESUME MODE!</b>\n🔄 <i>Resuming conversation session from the last context...</i>"
         await process_custom_agent_prompt(
             bot=bot,
             chat_id=message.chat.id,
@@ -172,8 +169,7 @@ async def handle_session_callback(
         await callback.answer("Starting new session.")
         with contextlib.suppress(Exception):
             await callback.message.edit_text(
-                "🔄 <b>New Conversation Session Started.</b>\n"
-                "Ready to receive new instructions!",
+                "🔄 <b>New Conversation Session Started.</b>\nReady to receive new instructions!",
                 parse_mode="HTML",
             )
     elif action == "delete":
@@ -183,8 +179,7 @@ async def handle_session_callback(
             await callback.answer("Session deleted successfully.")
             with contextlib.suppress(Exception):
                 await callback.message.edit_text(
-                    f"✅ <b>Conversation Session <code>{conv_id[:8]}...</code> "
-                    f"Deleted Successfully!</b>",
+                    f"✅ <b>Conversation Session <code>{conv_id[:8]}...</code> Deleted Successfully!</b>",
                     parse_mode="HTML",
                 )
         else:
@@ -237,8 +232,7 @@ async def show_session_history_card(
         await send_long_message(
             bot,
             chat_id,
-            "<i>No chat history in this session yet. "
-            "Send a message to get started!</i>",
+            "<i>No chat history in this session yet. Send a message to get started!</i>",
         )
         return
 
@@ -248,9 +242,7 @@ async def show_session_history_card(
         a_msg = formatter.markdown_to_telegram_html(raw_ai)
 
         turn_block = (
-            f"👤 <b>User (#{i}):</b> {u_msg}\n\n"
-            f"🤖 <b>Antigravity AI:</b>\n"
-            f"<blockquote expandable>{a_msg}</blockquote>"
+            f"👤 <b>User (#{i}):</b> {u_msg}\n\n🤖 <b>Antigravity AI:</b>\n<blockquote expandable>{a_msg}</blockquote>"
         )
         await send_long_message(bot, chat_id, turn_block)
         await asyncio.sleep(0.2)
@@ -274,8 +266,7 @@ async def rename_session_command(
         await reply_safe(
             bot,
             message,
-            "✏️ <b>Usage:</b> <code>/rename New Session Title</code>\n"
-            "Example: <code>/rename Web Scraper Project</code>",
+            "✏️ <b>Usage:</b> <code>/rename New Session Title</code>\nExample: <code>/rename Web Scraper Project</code>",
         )
         return
 
@@ -313,10 +304,7 @@ async def delete_session_command(message: Message, bot: Bot) -> None:
         return
 
     markup = get_session_delete_keyboard(sessions)
-    text = (
-        "🗑️ <b>Delete Conversation Session:</b>\n\n"
-        "Click a session below to permanently delete it from the server:"
-    )
+    text = "🗑️ <b>Delete Conversation Session:</b>\n\nClick a session below to permanently delete it from the server:"
     await reply_safe(bot, message, text, reply_markup=markup)
 
 
@@ -331,6 +319,5 @@ async def reset_conversation(
     await reply_safe(
         bot,
         message,
-        "🔄 <b>Antigravity AI chat session successfully reset.</b>\n"
-        "Ready to receive new instructions!",
+        "🔄 <b>Antigravity AI chat session successfully reset.</b>\nReady to receive new instructions!",
     )

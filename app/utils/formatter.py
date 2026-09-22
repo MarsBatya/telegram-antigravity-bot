@@ -16,9 +16,7 @@ def markdown_to_telegram_html(text: str) -> str:
         escaped_code = html.escape(code.strip("\n"))
         idx = len(code_blocks)
         if lang:
-            replacement = (
-                f'<pre><code class="language-{lang}">{escaped_code}</code></pre>'
-            )
+            replacement = f'<pre><code class="language-{lang}">{escaped_code}</code></pre>'
         else:
             replacement = f"<pre><code>{escaped_code}</code></pre>"
         code_blocks.append(replacement)
@@ -112,11 +110,7 @@ def format_execution_steps(steps: list[str], max_display: int = 10) -> str:
     total = len(steps)
     if total > max_display:
         earlier = total - (max_display - 2)
-        displayed = (
-            steps[:2]
-            + [f"<i>... {earlier} earlier steps</i>"]
-            + steps[-(max_display - 2) :]
-        )
+        displayed = steps[:2] + [f"<i>... {earlier} earlier steps</i>"] + steps[-(max_display - 2) :]
     else:
         displayed = steps
 
@@ -134,7 +128,4 @@ def format_execution_steps(steps: list[str], max_display: int = 10) -> str:
     if len(steps_text) > 1200:
         steps_text = steps_text[:1150] + "...\n<i>(truncated)</i>"
 
-    return (
-        f"<blockquote expandable><b>⚡ Execution Steps ({total}):</b>\n"
-        f"{steps_text}</blockquote>\n\n"
-    )
+    return f"<blockquote expandable><b>⚡ Execution Steps ({total}):</b>\n{steps_text}</blockquote>\n\n"

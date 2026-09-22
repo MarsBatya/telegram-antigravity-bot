@@ -1,5 +1,4 @@
 import asyncio
-from collections.abc import Callable
 import contextlib
 import html
 import inspect
@@ -9,6 +8,7 @@ import re
 import shutil
 import tempfile
 import time
+from collections.abc import Callable
 from typing import Any
 
 from aiogram import Bot, F, Router
@@ -56,8 +56,7 @@ def format_pending_files_system_message(pending_files: list[dict[str, Any]]) -> 
         dl_path = f.get("file_path", "")
         if f.get("saved_to_workspace") and ws_path:
             lines.append(
-                f"user uploaded '{name}' to the downloads folder "
-                f"and confirmed downloading to workspace at '{ws_path}'",
+                f"user uploaded '{name}' to the downloads folder and confirmed downloading to workspace at '{ws_path}'",
             )
         else:
             lines.append(
@@ -102,10 +101,7 @@ async def execute_smash(
         "everything runs 100% cleanly:\n\n"
         f"{args[1].strip()}"
     )
-    status_text = (
-        "💥 <b>SMASH MODE ACTIVATED!</b>\n"
-        "🔨 <i>AI is smashing bugs and executing complete fixes...</i>"
-    )
+    status_text = "💥 <b>SMASH MODE ACTIVATED!</b>\n🔨 <i>AI is smashing bugs and executing complete fixes...</i>"
     await process_custom_agent_prompt(
         bot=bot,
         chat_id=message.chat.id,
@@ -136,11 +132,7 @@ async def execute_goal(
         return
 
     prefix = _consume_pending_files_prefix(session_storage, message.chat.id)
-    goal_prompt = (
-        f"{prefix}"
-        f"Goal: {args[1].strip()}. "
-        f"Ensure this task is completed thoroughly and completely."
-    )
+    goal_prompt = f"{prefix}Goal: {args[1].strip()}. Ensure this task is completed thoroughly and completely."
     await process_agent_prompt(
         bot,
         message,
@@ -161,8 +153,7 @@ async def execute_plan(
         await reply_safe(
             bot,
             message,
-            "⚠️ Enter a planning topic.\n"
-            "Example: <code>/plan Database architecture plan for e-commerce</code>",
+            "⚠️ Enter a planning topic.\nExample: <code>/plan Database architecture plan for e-commerce</code>",
         )
         return
 
@@ -275,9 +266,7 @@ async def handle_document_upload(
 
     if caption:
         prefix = _consume_pending_files_prefix(session_storage, message.chat.id)
-        current_notice = (
-            f"user uploaded a '{safe_name}' to the downloads folder ({saved_path})"
-        )
+        current_notice = f"user uploaded a '{safe_name}' to the downloads folder ({saved_path})"
         if prefix:
             combined_system = f"{prefix.rstrip()}\n{current_notice}"
             full_prompt = f"{combined_system}\n\n{caption}"
@@ -374,9 +363,7 @@ async def handle_media_prompt(
         )
         return
 
-    caption = (
-        message.caption or "Analyze this file/photo and help fix any errors if present."
-    )
+    caption = message.caption or "Analyze this file/photo and help fix any errors if present."
     file_info = None
     file_name = "uploaded_file"
     try:
@@ -508,9 +495,7 @@ def _build_runner_kwargs(
 ) -> dict[str, Any]:
     sig = inspect.signature(runner_func)
     call_kwargs: dict[str, Any] = {"progress_callback": progress_callback}
-    if "storage" in sig.parameters or any(
-        p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
-    ):
+    if "storage" in sig.parameters or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
         call_kwargs["storage"] = storage
     return call_kwargs
 
@@ -598,10 +583,7 @@ async def _send_progress_edit(
         )
     except Exception as e:
         err_str = str(e).lower()
-        if (
-            "message is not modified" in err_str
-            or "message to edit not found" in err_str
-        ):
+        if "message is not modified" in err_str or "message to edit not found" in err_str:
             return
         if "retry after" in err_str:
             logger.warning("Telegram flood limit on chat %d: %s", chat_id, e)
@@ -710,7 +692,13 @@ async def process_custom_agent_prompt(  # noqa: C901
                 user_ws,
             )
             action_bar = get_action_bar_keyboard()
-            await send_long_message(bot, chat_id, final_output, reply_markup=action_bar)
+            await send_long_message(
+                bot,
+                chat_id,
+                final_output,
+                reply_markup=action_bar,
+                disable_notification=False,
+            )
 
             if generated_files:
                 await _send_generated_files(bot, chat_id, generated_files)
@@ -725,10 +713,7 @@ async def process_custom_agent_prompt(  # noqa: C901
                     )
             err_card = formatter.format_error_card(
                 str(e),
-                suggestion=(
-                    "Try typing /new to reset the session or check your "
-                    "server connection."
-                ),
+                suggestion=("Try typing /new to reset the session or check your server connection."),
             )
             await bot.send_message(
                 chat_id=chat_id,

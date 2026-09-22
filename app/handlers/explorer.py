@@ -48,8 +48,7 @@ async def change_workspace(
         await reply_safe(
             bot,
             message,
-            f"✅ <b>AI Workspace Changed & Synced To:</b>\n"
-            f"<code>{html.escape(new_ws)}</code>",
+            f"✅ <b>AI Workspace Changed & Synced To:</b>\n<code>{html.escape(new_ws)}</code>",
         )
     else:
         await show_workspace_picker(
@@ -210,10 +209,7 @@ async def handle_file_info_callback(
         f"🕒 <b>Modified:</b> {mtime_str}\n\n"
     )
     if is_empty:
-        text += (
-            "⚠️ <i>File is empty (0 bytes). "
-            "Telegram does not allow sending empty files.</i>"
-        )
+        text += "⚠️ <i>File is empty (0 bytes). Telegram does not allow sending empty files.</i>"
     elif is_oversized:
         text += "⚠️ <i>File exceeds Telegram's 50MB upload limit.</i>"
     else:
@@ -419,9 +415,7 @@ async def render_file_explorer(
     if total_items == 0:
         info_line = "📊 <i>(Directory is empty)</i>\n\n"
     elif total_pages > 1:
-        info_line = (
-            f"📊 <b>Page {page}/{total_pages}</b> ({total_items} items total)\n\n"
-        )
+        info_line = f"📊 <b>Page {page}/{total_pages}</b> ({total_items} items total)\n\n"
     else:
         info_line = f"📊 <b>{total_items} items total</b>\n\n"
 

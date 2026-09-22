@@ -107,13 +107,7 @@ def test_code_block_without_language():
 
 
 def test_code_block_preserves_inner_markdown_and_escapes_html():
-    md = (
-        "```python\n"
-        "# This is not a header\n"
-        "x = <b>test</b> & 'value'\n"
-        "**not bold**\n"
-        "```"
-    )
+    md = "```python\n# This is not a header\nx = <b>test</b> & 'value'\n**not bold**\n```"
     html_out = markdown_to_telegram_html(md)
     assert '<pre><code class="language-python">' in html_out
     assert "# This is not a header" in html_out

@@ -157,8 +157,7 @@ async def handle_set_effort_callback(
 
     with contextlib.suppress(Exception):
         await callback.message.edit_text(
-            f"✅ <b>Reasoning Effort Successfully Changed To:</b> "
-            f"<code>{eff_key.upper()}</code>",
+            f"✅ <b>Reasoning Effort Successfully Changed To:</b> <code>{eff_key.upper()}</code>",
             parse_mode="HTML",
         )
 

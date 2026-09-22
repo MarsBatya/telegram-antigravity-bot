@@ -37,12 +37,7 @@ def normalize_proxy_url(proxy_url: str | None) -> str | None:
 
 def get_http_proxy() -> str | None:
     """Reads HTTP proxy settings from environment variables."""
-    raw = (
-        os.getenv("HTTP_PROXY")
-        or os.getenv("http_proxy")
-        or os.getenv("HTTPS_PROXY")
-        or os.getenv("https_proxy")
-    )
+    raw = os.getenv("HTTP_PROXY") or os.getenv("http_proxy") or os.getenv("HTTPS_PROXY") or os.getenv("https_proxy")
     return normalize_proxy_url(raw)
 
 
@@ -158,7 +153,6 @@ def validate_config(
 
     if not target_users:
         print(
-            "[WARNING] ALLOWED_USER_IDS is empty in .env. "
-            "Bot will report Telegram ID to user on first /start.",
+            "[WARNING] ALLOWED_USER_IDS is empty in .env. Bot will report Telegram ID to user on first /start.",
         )
     return True

@@ -1,9 +1,9 @@
 """Antigravity Telegram Bot - Central Logging Configuration."""
 
 import logging
+import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-import sys
 
 from app.core import config
 
@@ -24,8 +24,7 @@ def setup_logging(
 
     target_resolved = str(target_log.resolve())
     has_target_file_handler = any(
-        isinstance(h, RotatingFileHandler)
-        and getattr(h, "baseFilename", None) == target_resolved
+        isinstance(h, RotatingFileHandler) and getattr(h, "baseFilename", None) == target_resolved
         for h in root_logger.handlers
     )
     if has_target_file_handler:

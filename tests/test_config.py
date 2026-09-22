@@ -98,25 +98,12 @@ def test_normalize_proxy_url():
     assert config.normalize_proxy_url(None) is None
     assert config.normalize_proxy_url("") is None
     assert config.normalize_proxy_url("   ") is None
-    assert (
-        config.normalize_proxy_url("http://127.0.0.1:8080") == "http://127.0.0.1:8080"
-    )
-    assert (
-        config.normalize_proxy_url("https://proxy.example.com:8443")
-        == "https://proxy.example.com:8443"
-    )
-    assert (
-        config.normalize_proxy_url("socks5://127.0.0.1:1080")
-        == "socks5://127.0.0.1:1080"
-    )
-    assert (
-        config.normalize_proxy_url("socks4://127.0.0.1:1080")
-        == "socks4://127.0.0.1:1080"
-    )
+    assert config.normalize_proxy_url("http://127.0.0.1:8080") == "http://127.0.0.1:8080"
+    assert config.normalize_proxy_url("https://proxy.example.com:8443") == "https://proxy.example.com:8443"
+    assert config.normalize_proxy_url("socks5://127.0.0.1:1080") == "socks5://127.0.0.1:1080"
+    assert config.normalize_proxy_url("socks4://127.0.0.1:1080") == "socks4://127.0.0.1:1080"
     assert config.normalize_proxy_url("127.0.0.1:8080") == "http://127.0.0.1:8080"
-    assert (
-        config.normalize_proxy_url("  proxy.local:3128  ") == "http://proxy.local:3128"
-    )
+    assert config.normalize_proxy_url("  proxy.local:3128  ") == "http://proxy.local:3128"
 
 
 def test_get_http_proxy():

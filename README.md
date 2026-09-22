@@ -31,6 +31,7 @@ Control your Linux server, coding execution, bug fixes, and development workflow
 | /stop, /cancel | Cancel the running task |
 | /usage | Show Freebuff quota and model usage |
 | /status | Show server metrics and session status |
+| /doctor | Pre-flight health check & diagnostic doctor |
 | /logs | Show recent bot logs |
 
 Any other message is treated as a prompt for the agent.
@@ -46,7 +47,7 @@ Any other message is treated as a prompt for the agent.
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/daffaroffi/telegram-antigravity-bot.git
+git clone https://github.com/MarsBatya/telegram-antigravity-bot.git
 cd telegram-antigravity-bot
 ```
 
@@ -61,22 +62,24 @@ cp .env.example .env
 Edit `.env` to configure your credentials:
 
 ```env
-# Required: Telegram Bot Token and authorized users
+# Required: Telegram Bot Token (from @BotFather)
 TELEGRAM_BOT_TOKEN=123456789:AA...your-token-from-botfather
+
+# Optional on first run: leave empty to have the bot tell you your ID via /start!
 ALLOWED_USER_IDS=123456789
 
-# Antigravity CLI & Workspace settings
-AGY_PATH=/root/.local/bin/agy
-DEFAULT_WORKSPACE=/root/workspace
+# Optional: Antigravity CLI & Workspace settings (auto-detected if omitted)
+# AGY_PATH=/root/.local/bin/agy
+# DEFAULT_WORKSPACE=/root/workspace
 ```
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
 | `TELEGRAM_BOT_TOKEN` | Yes | - | Bot token obtained from [@BotFather](https://t.me/BotFather) |
-| `ALLOWED_USER_IDS` | Yes | - | Comma-separated Telegram user IDs allowed to interact with the bot |
-| `AGY_PATH` | No | `/root/.local/bin/agy` | Path to the Antigravity CLI binary |
-| `DEFAULT_WORKSPACE` | No | `/root/workspace` | Default working directory for the agent |
-| `GEMINI_API_KEY` | No | - | Gemini API key for headless authentication |
+| `ALLOWED_USER_IDS` | No* | - | Comma-separated Telegram user IDs allowed to interact with the bot (*bot reports your ID on first `/start` if left blank) |
+| `AGY_PATH` | No | Auto-detected | Path to the Antigravity CLI binary (auto-detected from PATH, `~/.local/bin/agy`, or Windows app dirs) |
+| `DEFAULT_WORKSPACE` | No | `~/my-project` | Default working directory for the agent (or `/root/workspace` in Docker) |
+| `GEMINI_API_KEY` | No | - | Gemini API key for headless authentication, only if you pay for tokens there |
 | `HTTP_PROXY` | No | - | HTTP/HTTPS/SOCKS5 proxy URL for Telegram and `agy` requests |
 | `HTTPS_PROXY` | No | - | HTTPS proxy URL (defaults to `HTTP_PROXY` if omitted) |
 | `NO_PROXY` | No | `localhost,127.0.0.1,::1` | Comma-separated domains/IPs to bypass proxy |
@@ -179,8 +182,9 @@ uv run pytest
 # Run all tests including slow ones
 uv run pytest --run-slow
 
-# Format code
-uv run ruff format --config /home/mars/python/.vscode/ruff.toml .
+# Format and check code
+uv run ruff format .
+uv run ruff check .
 
 # Start the bot
 uv run python main.py
@@ -218,9 +222,13 @@ sudo journalctl -u telegram-antigravity-bot.service -f
 
 ## Security
 
-- The bot rejects messages from any user not listed in `ALLOWED_USER_IDS` and logs unauthorized attempts.
-- The bot token is read from `.env`, which is excluded from version control.
-- **Docker Root Execution**: The Docker container runs as `root` as a deliberate design decision. This gives the Antigravity agent (`agy`) full execution flexibility to run terminal commands, install packages, and manage workspace files without permission barriers in headless environments.
+- **Strict User Authorization**: The bot rejects messages from any user not listed in `ALLOWED_USER_IDS` and logs unauthorized attempts. Leaving this empty on first run allows you to safely discover your Telegram ID via `/start`.
+- **Private Chat Only**: The bot operates strictly in private 1-on-1 chats and rejects group/channel messages to prevent group members from triggering or inspecting server execution.
+- **Bot Token**: The bot token is read from `.env`, which is strictly excluded from version control.
+- **Docker vs. Host PC Safety**:
+  - The agent runs with `--dangerously-skip-permissions` to enable non-interactive tool calls.
+  - When running unattended on a VPS or remote machine, **Docker Compose is strongly recommended** for filesystem containment.
+  - The Docker container runs as `root` intentionally to give the `agy` CLI sub-processes full flexibility to manage developer tooling and dependencies without permission barriers.
 
 ## License
 

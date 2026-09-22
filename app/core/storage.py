@@ -1,12 +1,12 @@
 import contextlib
 import json
 import os
-from pathlib import Path
 import signal
 import subprocess
 import sys
 import threading
 import time
+from pathlib import Path
 from typing import Any
 
 from app.core import config
@@ -77,9 +77,7 @@ def calculate_session_tokens(conv_id: str, brain_dir: str | None = None) -> int:
             str(Path.home() / ".gemini" / "antigravity-cli" / "brain"),
         ),
     )
-    transcript_file = (
-        target_brain / conv_id / ".system_generated" / "logs" / "transcript.jsonl"
-    )
+    transcript_file = target_brain / conv_id / ".system_generated" / "logs" / "transcript.jsonl"
     if not transcript_file.exists():
         return 0
 
@@ -212,11 +210,7 @@ class SessionStorage:
                 convs_copy = dict(self.active_conversations)
                 workspaces_copy = dict(self.active_workspaces)
                 settings_copy = {k: dict(v) for k, v in self.active_settings.items()}
-                pending_copy = {
-                    k: [dict(item) for item in v]
-                    for k, v in self.pending_file_uploads.items()
-                    if v
-                }
+                pending_copy = {k: [dict(item) for item in v] for k, v in self.pending_file_uploads.items() if v}
 
             temp_file: Path | None = None
             try:
@@ -314,11 +308,7 @@ class SessionStorage:
                 }
 
             conv_id = self.active_conversations.get(chat_id)
-            need_calc = (
-                isinstance(conv_id, str)
-                and conv_id
-                and self.chat_token_usage[chat_id]["session_tokens"] == 0
-            )
+            need_calc = isinstance(conv_id, str) and conv_id and self.chat_token_usage[chat_id]["session_tokens"] == 0
 
         if need_calc and isinstance(conv_id, str):
             tokens = calculate_session_tokens(conv_id)

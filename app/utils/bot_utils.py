@@ -64,6 +64,10 @@ async def register_telegram_commands(target_bot: Bot) -> bool:
         ),
         BotCommand(command="plan", description="📋 Planning mode (Plan Mode)"),
         BotCommand(
+            command="doctor",
+            description="🩺 Pre-flight health check & system diagnostics",
+        ),
+        BotCommand(
             command="logs",
             description="📜 View activity logs & bot systemd logs",
         ),
@@ -71,7 +75,7 @@ async def register_telegram_commands(target_bot: Bot) -> bool:
     ]
     try:
         await target_bot.set_my_commands(commands)
-        print("✅ ALL 18 Telegram Slash Commands registered successfully!")
+        print("✅ ALL 19 Telegram Slash Commands registered successfully!")
         return True
     except Exception as e:
         print(f"[WARNING] Failed to register slash commands with Telegram: {e}")
@@ -110,12 +114,17 @@ async def send_long_message(  # noqa: C901
     chat_id: int,
     text: str,
     reply_markup: InlineKeyboardMarkup | ReplyKeyboardMarkup | None = None,
+    disable_notification: bool | None = None,
 ) -> Message | None:
     """Sends message cleanly in one bubble if <= 3800 chars,
     or splits safely by lines and balances HTML tags if larger.
     """
     if not text or not text.strip():
         return None
+
+    send_kwargs: dict[str, Any] = {}
+    if disable_notification is not None:
+        send_kwargs["disable_notification"] = disable_notification
 
     max_length = 3800
     if len(text) <= max_length:
@@ -125,6 +134,7 @@ async def send_long_message(  # noqa: C901
                 text,
                 parse_mode="HTML",
                 reply_markup=reply_markup,
+                **send_kwargs,
             )
         except Exception as e:
             print(f"[WARNING] HTML send failed: {e}, falling back to plain text")
@@ -135,6 +145,7 @@ async def send_long_message(  # noqa: C901
                     clean_text,
                     parse_mode=None,
                     reply_markup=reply_markup,
+                    **send_kwargs,
                 )
             except Exception:
                 return None
@@ -153,6 +164,7 @@ async def send_long_message(  # noqa: C901
                 chunk,
                 parse_mode="HTML",
                 reply_markup=m_markup,
+                **send_kwargs,
             )
         except Exception:
             clean_chunk = re.sub(r"<[^>]+>", "", chunk)
@@ -162,6 +174,7 @@ async def send_long_message(  # noqa: C901
                     clean_chunk,
                     parse_mode=None,
                     reply_markup=m_markup,
+                    **send_kwargs,
                 )
             except Exception as e:
                 print(f"[ERROR] Failed to send chunk: {e}")

@@ -1,12 +1,13 @@
 import json
 import os
-from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import time
-from typing import Any
 import urllib.request
+from pathlib import Path
+from typing import Any
 
 from app.core import config
 
@@ -46,11 +47,7 @@ class ModelManager:
     ) -> None:
         self.cache_ttl = cache_ttl
         self.agy_path = agy_path
-        self.fallback_models = (
-            list(fallback_models)
-            if fallback_models is not None
-            else list(DEFAULT_MODELS_FALLBACK)
-        )
+        self.fallback_models = list(fallback_models) if fallback_models is not None else list(DEFAULT_MODELS_FALLBACK)
         self._cache: list[dict[str, Any]] = []
         self._cache_time: float = 0.0
 
@@ -61,18 +58,19 @@ class ModelManager:
 
     def fetch_from_cli(self) -> list[dict[str, Any]]:
         """Queries the agy CLI directly for canonical supported models."""
-        agy_bin = (
-            self.agy_path or shutil.which("agy") or getattr(config, "AGY_PATH", "agy")
-        )
+        agy_bin = self.agy_path or shutil.which("agy") or getattr(config, "AGY_PATH", "agy")
         if not agy_bin or not shutil.which(agy_bin):
             return []
         try:
+            is_win = sys.platform == "win32"
+            use_shell = is_win and agy_bin.lower().endswith((".cmd", ".bat"))
             res = subprocess.run(  # noqa: S603
                 [agy_bin, "models"],
                 capture_output=True,
                 text=True,
                 timeout=8,
                 check=False,
+                shell=use_shell,
             )
             if res.returncode != 0:
                 return []
@@ -122,8 +120,7 @@ class ModelManager:
             if m_id.endswith("-tiered"):
                 base_id = m_id[:-7]
                 base_disp = disp or " ".join(
-                    w.upper() if w.lower() in ("gpt", "oss", "ai") else w.capitalize()
-                    for w in base_id.split("-")
+                    w.upper() if w.lower() in ("gpt", "oss", "ai") else w.capitalize() for w in base_id.split("-")
                 )
                 for tier, tier_name in [
                     ("high", "High"),
@@ -223,11 +220,7 @@ class ModelManager:
         if token_file is not None:
             return self.fetch_from_cloudcode(token_file=token_file)
 
-        if (
-            not force_refresh
-            and self._cache
-            and (time.time() - self._cache_time < self.cache_ttl)
-        ):
+        if not force_refresh and self._cache and (time.time() - self._cache_time < self.cache_ttl):
             return list(self._cache)
 
         # 1. Try CLI first when no explicit token_file specified
@@ -255,11 +248,7 @@ class ModelManager:
         """Resolves a user-provided model query or shorthand to a valid model ID."""
         cleaned = query.strip()
         norm = normalize_model_name(cleaned)
-        models = (
-            available_models
-            if available_models is not None
-            else self.get_available_models()
-        )
+        models = available_models if available_models is not None else self.get_available_models()
 
         # 1. Exact ID or without "-flash"
         for m in models:

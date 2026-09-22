@@ -35,6 +35,8 @@ services:
       - bot-workspace:${DEFAULT_WORKSPACE:-/root/workspace}
       # Option B: Host directory (uncomment to edit created files directly on host)
       # - ./workspace:${DEFAULT_WORKSPACE:-/root/workspace}
+      # Option C: Host OAuth token (uncomment to use your host agy login inside Docker)
+      # - ~/.gemini/antigravity-cli/antigravity-oauth-token:/root/.gemini/antigravity-cli/antigravity-oauth-token:ro
     deploy:
       resources:
         limits:
