@@ -23,8 +23,11 @@ line-length = 120
 target-version = "py310"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "W"]
-ignore = ["E501"]
+select = ["A", "C", "E", "F", "B", "Q", "N", "S", "COM", "C4", "RET"]
+ignore = ["COM812"]
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/*" = ["S101"]
 
 [tool.ruff.format]
 quote-style = "double"

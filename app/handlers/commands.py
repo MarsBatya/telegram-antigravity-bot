@@ -109,7 +109,7 @@ async def send_doctor(
     else:
         lines.append(
             f"❌ <b>AGY CLI:</b> Binary not found at <code>{html.escape(config.AGY_PATH)}</code>\n"
-            "   <i>Install via curl -fsSL https://antigravity.google/cli/install.sh | bash</i>"
+            "   <i>Install via curl -fsSL https://antigravity.google/cli/install.sh | bash</i>",
         )
 
     # 2. Authentication
@@ -123,7 +123,7 @@ async def send_doctor(
     else:
         lines.append(
             "⚠️ <b>Authentication:</b> No OAuth token or Gemini API Key found!\n"
-            "   <i>Run <code>agy login</code> on host or set GEMINI_API_KEY in .env</i>"
+            "   <i>Run <code>agy login</code> on host or set GEMINI_API_KEY in .env</i>",
         )
 
     # 3. Target Workspace
@@ -137,7 +137,7 @@ async def send_doctor(
             lines.append(f"✅ <b>Workspace:</b> Exists & Writable\n   <code>{html.escape(user_ws)}</code>")
         except Exception as e:
             lines.append(
-                f"❌ <b>Workspace:</b> Permission Error: {html.escape(str(e))}\n   <code>{html.escape(user_ws)}</code>"
+                f"❌ <b>Workspace:</b> Permission Error: {html.escape(str(e))}\n   <code>{html.escape(user_ws)}</code>",
             )
     else:
         try:

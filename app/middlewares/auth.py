@@ -13,6 +13,58 @@ class AuthMiddleware(BaseMiddleware):
     against ALLOWED_USER_IDS.
     """
 
+    @staticmethod
+    async def _handle_non_private(event: TelegramObject) -> None:
+        text = getattr(event, "text", "") or ""
+        if isinstance(event, Message) and text.startswith("/"):
+            await event.answer(
+                "🔒 <b>Private Chat Only</b>\n\n"
+                "For security and to protect server execution, "
+                "this bot only operates in private 1-on-1 chats.",
+                parse_mode="HTML",
+            )
+        elif isinstance(event, CallbackQuery):
+            await event.answer(
+                "🔒 This bot only operates in private 1-on-1 chats.",
+                show_alert=True,
+            )
+
+    @staticmethod
+    async def _handle_unconfigured(event: TelegramObject, user_id: int) -> None:
+        if isinstance(event, Message):
+            await event.answer(
+                f"👋 <b>Welcome to Antigravity AI Bot!</b>\n\n"
+                f"Your Telegram ID is: <code>{user_id}</code>\n\n"
+                f"⚠️ <b>Bot has not been configured with your ID yet.</b>\n"
+                f"Please open the <code>.env</code> file on the server and add:\n"
+                f"<code>ALLOWED_USER_IDS={user_id}</code>\n\n"
+                f"Then restart the bot.",
+                parse_mode="HTML",
+            )
+        elif isinstance(event, CallbackQuery):
+            await event.answer(
+                "⚠️ Bot has not been configured with your ID yet.",
+                show_alert=True,
+            )
+
+    @staticmethod
+    async def _handle_unauthorized(event: TelegramObject, user_id: int) -> None:
+        print(
+            f"[SECURITY ALERT] Unauthorized access attempt from User ID: {user_id}",
+        )
+        if isinstance(event, Message):
+            await event.answer(
+                f"⛔ <b>Access Denied!</b>\nYour Telegram ID "
+                f"(<code>{user_id}</code>) is not listed in "
+                f"ALLOWED_USER_IDS in <code>.env</code>.",
+                parse_mode="HTML",
+            )
+        elif isinstance(event, CallbackQuery):
+            await event.answer(
+                "⛔ Access denied! Your ID is not registered.",
+                show_alert=True,
+            )
+
     async def __call__(
         self,
         handler: Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]],
@@ -33,55 +85,15 @@ class AuthMiddleware(BaseMiddleware):
             chat = getattr(event.message, "chat", None)
 
         if chat and getattr(chat, "type", "private") != "private":
-            text = getattr(event, "text", "") or ""
-            if isinstance(event, Message) and text.startswith("/"):
-                await event.answer(
-                    "🔒 <b>Private Chat Only</b>\n\n"
-                    "For security and to protect server execution, "
-                    "this bot only operates in private 1-on-1 chats.",
-                    parse_mode="HTML",
-                )
-            elif isinstance(event, CallbackQuery):
-                await event.answer(
-                    "🔒 This bot only operates in private 1-on-1 chats.",
-                    show_alert=True,
-                )
+            await self._handle_non_private(event)
             return None
 
         if not config.ALLOWED_USER_IDS:
-            if isinstance(event, Message):
-                await event.answer(
-                    f"👋 <b>Welcome to Antigravity AI Bot!</b>\n\n"
-                    f"Your Telegram ID is: <code>{user_id}</code>\n\n"
-                    f"⚠️ <b>Bot has not been configured with your ID yet.</b>\n"
-                    f"Please open the <code>.env</code> file on the server and add:\n"
-                    f"<code>ALLOWED_USER_IDS={user_id}</code>\n\n"
-                    f"Then restart the bot.",
-                    parse_mode="HTML",
-                )
-            elif isinstance(event, CallbackQuery):
-                await event.answer(
-                    "⚠️ Bot has not been configured with your ID yet.",
-                    show_alert=True,
-                )
+            await self._handle_unconfigured(event, user_id)
             return None
 
         if not is_authorized(user_id):
-            print(
-                f"[SECURITY ALERT] Unauthorized access attempt from User ID: {user_id}",
-            )
-            if isinstance(event, Message):
-                await event.answer(
-                    f"⛔ <b>Access Denied!</b>\nYour Telegram ID "
-                    f"(<code>{user_id}</code>) is not listed in "
-                    f"ALLOWED_USER_IDS in <code>.env</code>.",
-                    parse_mode="HTML",
-                )
-            elif isinstance(event, CallbackQuery):
-                await event.answer(
-                    "⛔ Access denied! Your ID is not registered.",
-                    show_alert=True,
-                )
+            await self._handle_unauthorized(event, user_id)
             return None
 
         return await handler(event, data)
