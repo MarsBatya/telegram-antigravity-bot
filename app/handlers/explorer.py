@@ -23,7 +23,7 @@ from app.ui.keyboards import (
     get_workspace_keyboard,
 )
 from app.utils.bot_utils import reply_safe
-from app.utils.helpers import format_file_size, path_mapper
+from app.utils.helpers import PathMapper, format_file_size
 
 router = Router(name="explorer")
 
@@ -35,6 +35,7 @@ async def change_workspace(
     message: Message,
     bot: Bot,
     session_storage: SessionStorage,
+    path_mapper: PathMapper,
 ) -> None:
     text = message.text or ""
     args = text.split(maxsplit=1)
@@ -51,13 +52,19 @@ async def change_workspace(
             f"<code>{html.escape(new_ws)}</code>",
         )
     else:
-        await show_workspace_picker(message, bot, session_storage=session_storage)
+        await show_workspace_picker(
+            message,
+            bot,
+            session_storage=session_storage,
+            path_mapper=path_mapper,
+        )
 
 
 async def show_workspace_picker(
     message: Message,
     bot: Bot,
     session_storage: SessionStorage,
+    path_mapper: PathMapper,
 ) -> None:
     chat_id = message.chat.id
     current_ws = session_storage.get_workspace(chat_id)
@@ -86,6 +93,7 @@ async def handle_set_ws_callback(
     callback: CallbackQuery,
     callback_data: WorkspaceCallback,
     session_storage: SessionStorage,
+    path_mapper: PathMapper,
 ) -> None:
     if callback.message is None:
         return
@@ -116,6 +124,7 @@ async def show_tree_explorer(
     message: Message,
     bot: Bot,
     session_storage: SessionStorage,
+    path_mapper: PathMapper,
 ) -> None:
     current_ws = session_storage.get_workspace(message.chat.id)
     await render_file_explorer_message(
@@ -123,6 +132,7 @@ async def show_tree_explorer(
         bot,
         current_ws,
         session_storage=session_storage,
+        path_mapper=path_mapper,
     )
 
 
@@ -130,6 +140,7 @@ async def show_tree_explorer(
 async def handle_nav_tree(
     callback: CallbackQuery,
     session_storage: SessionStorage,
+    path_mapper: PathMapper,
 ) -> None:
     if callback.message is None:
         return
@@ -138,6 +149,7 @@ async def handle_nav_tree(
         callback,
         current_ws,
         session_storage=session_storage,
+        path_mapper=path_mapper,
     )
 
 
@@ -146,6 +158,7 @@ async def handle_browse_dir_callback(
     callback: CallbackQuery,
     callback_data: BrowseDirCallback,
     session_storage: SessionStorage,
+    path_mapper: PathMapper,
 ) -> None:
     path_dir = path_mapper.decode(callback_data.token) or config.DEFAULT_WORKSPACE
     await render_file_explorer_callback(
@@ -153,6 +166,7 @@ async def handle_browse_dir_callback(
         path_dir,
         page=callback_data.page,
         session_storage=session_storage,
+        path_mapper=path_mapper,
     )
 
 
@@ -160,6 +174,7 @@ async def handle_browse_dir_callback(
 async def handle_file_info_callback(
     callback: CallbackQuery,
     callback_data: FileInfoCallback,
+    path_mapper: PathMapper,
 ) -> None:
     if callback.message is None:
         return
@@ -219,6 +234,7 @@ async def handle_file_upload_callback(
     callback: CallbackQuery,
     callback_data: FileUploadCallback,
     bot: Bot,
+    path_mapper: PathMapper,
 ) -> None:
     if callback.message is None:
         return
@@ -373,6 +389,7 @@ async def render_file_explorer(
     path_dir: str,
     *,
     session_storage: SessionStorage,
+    path_mapper: PathMapper,
     bot: Bot | None = None,
     page: int = 1,
 ) -> None:
@@ -430,12 +447,14 @@ async def render_file_explorer_message(
     path_dir: str,
     *,
     session_storage: SessionStorage,
+    path_mapper: PathMapper,
     page: int = 1,
 ) -> None:
     await render_file_explorer(
         message,
         path_dir,
         session_storage=session_storage,
+        path_mapper=path_mapper,
         bot=bot,
         page=page,
     )
@@ -446,11 +465,13 @@ async def render_file_explorer_callback(
     path_dir: str,
     *,
     session_storage: SessionStorage,
+    path_mapper: PathMapper,
     page: int = 1,
 ) -> None:
     await render_file_explorer(
         callback,
         path_dir,
         session_storage=session_storage,
+        path_mapper=path_mapper,
         page=page,
     )

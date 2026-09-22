@@ -22,7 +22,7 @@ from app.handlers import (
 )
 from app.middlewares.auth import AuthMiddleware
 from app.utils.bot_utils import register_telegram_commands
-from app.utils.helpers import mask_proxy_url
+from app.utils.helpers import PathMapper, mask_proxy_url
 
 _bot_token = (
     config.BOT_TOKEN
@@ -58,6 +58,7 @@ def create_bot(
 bot = create_bot()
 storage = SessionStorage()
 model_manager = ModelManager()
+path_mapper = PathMapper()
 dp = Dispatcher()
 
 
@@ -65,6 +66,7 @@ def setup_dispatcher(
     target_dp: Dispatcher,
     storage: SessionStorage | None = None,
     model_manager: ModelManager | None = None,
+    path_mapper: PathMapper | None = None,
 ) -> None:
     """Configures middlewares, routers, and dependency injection on a Dispatcher."""
     if not target_dp.sub_routers:
@@ -86,9 +88,16 @@ def setup_dispatcher(
         target_dp["session_storage"] = storage
     if model_manager is not None:
         target_dp["model_manager"] = model_manager
+    if path_mapper is not None:
+        target_dp["path_mapper"] = path_mapper
 
 
-setup_dispatcher(dp, storage=storage, model_manager=model_manager)
+setup_dispatcher(
+    dp,
+    storage=storage,
+    model_manager=model_manager,
+    path_mapper=path_mapper,
+)
 
 
 async def on_shutdown(
@@ -123,7 +132,13 @@ async def main() -> None:
 
     storage = SessionStorage()
     model_manager = ModelManager()
-    setup_dispatcher(dp, storage=storage, model_manager=model_manager)
+    path_mapper = PathMapper()
+    setup_dispatcher(
+        dp,
+        storage=storage,
+        model_manager=model_manager,
+        path_mapper=path_mapper,
+    )
 
     await register_telegram_commands(bot)
 
@@ -147,6 +162,7 @@ async def main() -> None:
         allowed_updates=dp.resolve_used_update_types(),
         session_storage=storage,
         model_manager=model_manager,
+        path_mapper=path_mapper,
     )
 
 
@@ -158,6 +174,7 @@ __all__ = [
     "main",
     "model_manager",
     "on_shutdown",
+    "path_mapper",
     "setup_dispatcher",
     "storage",
 ]

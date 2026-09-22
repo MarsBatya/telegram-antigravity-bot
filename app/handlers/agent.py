@@ -32,8 +32,8 @@ from app.utils.bot_utils import (
     send_long_message,
 )
 from app.utils.helpers import (
+    PathMapper,
     format_file_size,
-    path_mapper,
 )
 
 router = Router(name="agent")
@@ -213,6 +213,7 @@ async def handle_document_upload(
     message: Message,
     bot: Bot,
     session_storage: SessionStorage,
+    path_mapper: PathMapper,
 ) -> None:
     doc = message.document
     if not doc:
@@ -324,6 +325,7 @@ async def handle_save_to_workspace_callback(
     callback: CallbackQuery,
     callback_data: SaveToWorkspaceCallback,
     session_storage: SessionStorage,
+    path_mapper: PathMapper,
 ) -> None:
     if callback.message is None:
         return
@@ -360,9 +362,15 @@ async def handle_media_prompt(
     message: Message,
     bot: Bot,
     session_storage: SessionStorage,
+    path_mapper: PathMapper,
 ) -> None:
     if message.document:
-        await handle_document_upload(message, bot, session_storage=session_storage)
+        await handle_document_upload(
+            message,
+            bot,
+            session_storage=session_storage,
+            path_mapper=path_mapper,
+        )
         return
 
     caption = (

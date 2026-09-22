@@ -29,9 +29,6 @@ class PathMapper:
         return self._to_path.get(token)
 
 
-path_mapper = PathMapper()
-
-
 def mask_proxy_url(url: str | None) -> str:
     """Masks sensitive password/credentials in proxy URLs for safe logging/display."""
     if not url:

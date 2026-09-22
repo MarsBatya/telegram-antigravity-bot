@@ -34,7 +34,8 @@
   - `middlewares/`:
     - `auth.py`: Global authentication middleware (`AuthMiddleware`) verifying `ALLOWED_USER_IDS`.
   - `utils/`:
-    - `bot_utils.py`: `PathMapper` for path encoding, progress bar formatting, command menu registration, and safe message chunking.
+    - `helpers.py`: `PathMapper` for path encoding, progress bar formatting, proxy URL masking, and safe message chunking.
+    - `bot_utils.py`: Command menu registration, message chunking, and safe message reply helpers.
     - `formatter.py`: Converts agent markdown output into Telegram HTML (`<pre><code>`, `<b>`, `<i>`, `<blockquote expandable>`).
 - `Dockerfile`: Multi-stage Dockerfile bundling python 3.12-slim, agy CLI, uv, and healthcheck.
 - `docker-compose.yml`: Container orchestration with volumes, proxy passthrough, and resource limits.
@@ -131,7 +132,7 @@ All Python code in this repository must use strict, modern type annotations conf
 ## Key Conventions & Constraints
 
 - **Telegram Message Limits**: Telegram enforces a strict 4096-character limit per message. When sending streamed chunks or formatted output, route messages through `formatter.py` or chunking logic.
-- **Callback Data Size**: Inline keyboard `callback_data` has a 64-byte limit. Always use `PathMapper` (in `bot_utils.py`) to map long filesystem paths to short tokens (e.g. `p1`, `p2`).
+- **Callback Data Size**: Inline keyboard `callback_data` has a 64-byte limit. Always use `PathMapper` (in `helpers.py`, initialized in `main.py` and injected via aiogram v3 dependency injection) to map long filesystem paths to short tokens (e.g. `p1`, `p2`).
 - **Thread Safety & Background Tasks**: Do not run blocking CLI executions directly on the asyncio event loop. Spawn tasks via `asyncio.create_task` and offload blocking subprocess streams via `asyncio.to_thread` with `stream_runner.chat_locks` to prevent duplicate concurrent processes per chat.
 - **HTML Escaping**: Telegram parse mode is HTML (`parse_mode="HTML"`). All dynamic user inputs or agent outputs must have HTML-sensitive characters (`<`, `>`, `&`) properly escaped via `html.escape` unless already converted into valid Telegram HTML tags by `formatter.py`.
 - **Authorized Access**: Any new handlers or administrative features must respect `ALLOWED_USER_IDS` authorization checks (managed centrally via `AuthMiddleware`).

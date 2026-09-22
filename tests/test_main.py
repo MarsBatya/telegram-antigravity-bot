@@ -4,10 +4,6 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
-# Entire module requires aiogram (~5s import overhead) — skip unless --run-slow.
-pytestmark = pytest.mark.slow
-
 from aiogram import Bot
 from aiogram.types import CallbackQuery, Chat, Message, Update, User
 
@@ -89,8 +85,10 @@ from app.utils.helpers import (
     is_authorized,
     make_progress_bar,
     mask_proxy_url,
-    path_mapper,
 )
+
+# Entire module requires aiogram (~5s import overhead) — skip unless --run-slow.
+pytestmark = pytest.mark.slow
 
 
 def make_mock_message(
@@ -133,20 +131,19 @@ def make_mock_callback(
     return call
 
 
-def test_path_mapper() -> None:
-    pm = PathMapper()
-    p1 = pm.encode("/home/user/folder_a")
-    p2 = pm.encode("/home/user/folder_b")
+def test_path_mapper(path_mapper: PathMapper) -> None:
+    p1 = path_mapper.encode("/home/user/folder_a")
+    p2 = path_mapper.encode("/home/user/folder_b")
     assert p1 == "p1"
     assert p2 == "p2"
 
     # Same path returns same token
-    assert pm.encode("/home/user/folder_a") == "p1"
+    assert path_mapper.encode("/home/user/folder_a") == "p1"
 
     # Decode
-    assert pm.decode("p1") == os.path.abspath("/home/user/folder_a")
-    assert pm.decode("p2") == os.path.abspath("/home/user/folder_b")
-    assert pm.decode("p999") is None
+    assert path_mapper.decode("p1") == os.path.abspath("/home/user/folder_a")
+    assert path_mapper.decode("p2") == os.path.abspath("/home/user/folder_b")
+    assert path_mapper.decode("p999") is None
 
 
 def test_make_progress_bar() -> None:
@@ -394,13 +391,19 @@ async def test_command_mode_picker_and_callback(storage: SessionStorage) -> None
 async def test_command_workspace_and_callback(
     tmp_path: Path,
     storage: SessionStorage,
+    path_mapper: PathMapper,
 ) -> None:
     mock_bot = AsyncMock(spec=Bot)
     # /workspace with argument
     new_dir = str(tmp_path / "project-x")
     with patch("app.handlers.explorer.reply_safe", new=AsyncMock()) as mock_reply:
         msg = make_mock_message(user_id=12345, text=f"/workspace {new_dir}")
-        await change_workspace(msg, mock_bot, session_storage=storage)
+        await change_workspace(
+            msg,
+            mock_bot,
+            session_storage=storage,
+            path_mapper=path_mapper,
+        )
         mock_reply.assert_called_once()
         assert new_dir in mock_reply.call_args[0][2]
         assert storage.get_workspace(
@@ -412,7 +415,12 @@ async def test_command_workspace_and_callback(
     # /workspace without argument shows picker
     with patch("app.handlers.explorer.reply_safe", new=AsyncMock()) as mock_reply:
         msg = make_mock_message(user_id=12345, text="/workspace")
-        await change_workspace(msg, mock_bot, session_storage=storage)
+        await change_workspace(
+            msg,
+            mock_bot,
+            session_storage=storage,
+            path_mapper=path_mapper,
+        )
         mock_reply.assert_called_once()
         assert "Interactive Workspace Picker" in mock_reply.call_args[0][2]
 
@@ -420,13 +428,22 @@ async def test_command_workspace_and_callback(
     token = path_mapper.encode(new_dir)
     call = make_mock_callback(user_id=12345)
     cb_data = WorkspaceCallback(token=token)
-    await handle_set_ws_callback(call, cb_data, session_storage=storage)
+    await handle_set_ws_callback(
+        call,
+        cb_data,
+        session_storage=storage,
+        path_mapper=path_mapper,
+    )
     call.answer.assert_called_once_with("Workspace synced to AI!")
     call.message.edit_text.assert_called_once()
     assert "AI Workspace Successfully Changed" in call.message.edit_text.call_args[0][0]
 
 
-async def test_command_tree_explorer(tmp_path: Path, storage: SessionStorage) -> None:
+async def test_command_tree_explorer(
+    tmp_path: Path,
+    storage: SessionStorage,
+    path_mapper: PathMapper,
+) -> None:
     mock_bot = AsyncMock(spec=Bot)
     sub = tmp_path / "subdir"
     sub.mkdir()
@@ -439,7 +456,12 @@ async def test_command_tree_explorer(tmp_path: Path, storage: SessionStorage) ->
         new=AsyncMock(),
     ) as mock_reply:
         msg = make_mock_message(user_id=12345, text="/tree")
-        await show_tree_explorer(msg, mock_bot, session_storage=storage)
+        await show_tree_explorer(
+            msg,
+            mock_bot,
+            session_storage=storage,
+            path_mapper=path_mapper,
+        )
         mock_reply.assert_called_once()
         text = mock_reply.call_args[0][2]
         assert "Interactive File Explorer" in text
@@ -745,7 +767,11 @@ async def test_delete_session_command_and_callback(storage: SessionStorage) -> N
             assert "Deleted Successfully" in call.message.edit_text.call_args[0][0]
 
 
-async def test_handle_media_prompt(tmp_path: Path, storage: SessionStorage) -> None:
+async def test_handle_media_prompt(
+    tmp_path: Path,
+    storage: SessionStorage,
+    path_mapper: PathMapper,
+) -> None:
     mock_bot = AsyncMock(spec=Bot)
     with patch.object(config, "TEMP_UPLOAD_DIR", str(tmp_path)):
         msg_photo = make_mock_message(user_id=12345, caption="Explain this diagram")
@@ -763,7 +789,12 @@ async def test_handle_media_prompt(tmp_path: Path, storage: SessionStorage) -> N
             "app.handlers.agent.process_agent_prompt",
             new=AsyncMock(),
         ) as mock_proc:
-            await handle_media_prompt(msg_photo, mock_bot, session_storage=storage)
+            await handle_media_prompt(
+                msg_photo,
+                mock_bot,
+                session_storage=storage,
+                path_mapper=path_mapper,
+            )
             mock_proc.assert_called_once()
             prompt_arg = mock_proc.call_args[0][2]
             assert "File uploaded at" in prompt_arg
@@ -774,6 +805,7 @@ async def test_handle_media_prompt(tmp_path: Path, storage: SessionStorage) -> N
 async def test_handle_document_upload_no_caption(
     tmp_path: Path,
     storage: SessionStorage,
+    path_mapper: PathMapper,
 ) -> None:
     mock_bot = AsyncMock(spec=Bot)
     downloads_dir = tmp_path / "downloads"
@@ -791,7 +823,12 @@ async def test_handle_document_upload_no_caption(
         mock_bot.download_file = AsyncMock()
 
         with patch("app.handlers.agent.reply_safe", new=AsyncMock()) as mock_reply:
-            await handle_document_upload(msg_doc, mock_bot, session_storage=storage)
+            await handle_document_upload(
+                msg_doc,
+                mock_bot,
+                session_storage=storage,
+                path_mapper=path_mapper,
+            )
             mock_bot.download_file.assert_called_once()
             mock_reply.assert_called_once()
             reply_text = mock_reply.call_args[0][2]
@@ -808,6 +845,7 @@ async def test_handle_document_upload_no_caption(
 async def test_handle_document_upload_with_caption(
     tmp_path: Path,
     storage: SessionStorage,
+    path_mapper: PathMapper,
 ) -> None:
     mock_bot = AsyncMock(spec=Bot)
     downloads_dir = tmp_path / "downloads"
@@ -831,7 +869,12 @@ async def test_handle_document_upload_with_caption(
                 new=AsyncMock(),
             ) as mock_proc,
         ):
-            await handle_document_upload(msg_doc, mock_bot, session_storage=storage)
+            await handle_document_upload(
+                msg_doc,
+                mock_bot,
+                session_storage=storage,
+                path_mapper=path_mapper,
+            )
             mock_bot.download_file.assert_called_once()
             mock_reply.assert_called_once()
             mock_proc.assert_called_once()
@@ -849,6 +892,7 @@ async def test_handle_document_upload_with_caption(
 async def test_handle_document_upload_over_100mb(
     tmp_path: Path,
     storage: SessionStorage,
+    path_mapper: PathMapper,
 ) -> None:
     mock_bot = AsyncMock(spec=Bot)
     downloads_dir = tmp_path / "downloads"
@@ -861,7 +905,12 @@ async def test_handle_document_upload_over_100mb(
         msg_doc.document = doc
 
         with patch("app.handlers.agent.reply_safe", new=AsyncMock()) as mock_reply:
-            await handle_document_upload(msg_doc, mock_bot, session_storage=storage)
+            await handle_document_upload(
+                msg_doc,
+                mock_bot,
+                session_storage=storage,
+                path_mapper=path_mapper,
+            )
             mock_reply.assert_called_once()
             reply_text = mock_reply.call_args[0][2]
             assert "File Too Large" in reply_text
@@ -872,6 +921,7 @@ async def test_handle_document_upload_over_100mb(
 async def test_handle_document_upload_failure_handling(
     tmp_path: Path,
     storage: SessionStorage,
+    path_mapper: PathMapper,
 ) -> None:
     mock_bot = AsyncMock(spec=Bot)
     downloads_dir = tmp_path / "downloads"
@@ -886,7 +936,12 @@ async def test_handle_document_upload_failure_handling(
         # Telegram cloud 20MB limit rejection
         mock_bot.get_file.side_effect = Exception("Bad Request: file is too big")
         with patch("app.handlers.agent.reply_safe", new=AsyncMock()) as mock_reply:
-            await handle_document_upload(msg_doc, mock_bot, session_storage=storage)
+            await handle_document_upload(
+                msg_doc,
+                mock_bot,
+                session_storage=storage,
+                path_mapper=path_mapper,
+            )
             mock_reply.assert_called_once()
             reply_text = mock_reply.call_args[0][2]
             assert "Download Failed" in reply_text
@@ -895,7 +950,12 @@ async def test_handle_document_upload_failure_handling(
         # Generic failure
         mock_bot.get_file.side_effect = Exception("Connection reset by peer")
         with patch("app.handlers.agent.reply_safe", new=AsyncMock()) as mock_reply:
-            await handle_document_upload(msg_doc, mock_bot, session_storage=storage)
+            await handle_document_upload(
+                msg_doc,
+                mock_bot,
+                session_storage=storage,
+                path_mapper=path_mapper,
+            )
             mock_reply.assert_called_once()
             assert "Connection reset by peer" in mock_reply.call_args[0][2]
 
@@ -903,6 +963,7 @@ async def test_handle_document_upload_failure_handling(
 async def test_handle_save_to_workspace_callback(
     tmp_path: Path,
     storage: SessionStorage,
+    path_mapper: PathMapper,
 ) -> None:
     # Setup downloads file and workspace
     downloads_dir = tmp_path / "downloads"
@@ -925,7 +986,12 @@ async def test_handle_save_to_workspace_callback(
     call = make_mock_callback(user_id=12345)
     cb_data = SaveToWorkspaceCallback(token=token)
 
-    await handle_save_to_workspace_callback(call, cb_data, session_storage=storage)
+    await handle_save_to_workspace_callback(
+        call,
+        cb_data,
+        session_storage=storage,
+        path_mapper=path_mapper,
+    )
     call.answer.assert_called_once_with("✅ Saved to workspace!")
     call.message.edit_text.assert_called_once()
     assert "File Saved to Workspace" in call.message.edit_text.call_args[0][0]
@@ -1006,6 +1072,7 @@ async def test_handle_commands_consume_pending_files(
 async def test_handle_media_prompt_delegates_document(
     tmp_path: Path,
     storage: SessionStorage,
+    path_mapper: PathMapper,
 ) -> None:
     mock_bot = AsyncMock(spec=Bot)
     msg_doc = make_mock_message(user_id=12345)
@@ -1019,11 +1086,24 @@ async def test_handle_media_prompt_delegates_document(
         "app.handlers.agent.handle_document_upload",
         new=AsyncMock(),
     ) as mock_upload:
-        await handle_media_prompt(msg_doc, mock_bot, session_storage=storage)
-        mock_upload.assert_called_once_with(msg_doc, mock_bot, session_storage=storage)
+        await handle_media_prompt(
+            msg_doc,
+            mock_bot,
+            session_storage=storage,
+            path_mapper=path_mapper,
+        )
+        mock_upload.assert_called_once_with(
+            msg_doc,
+            mock_bot,
+            session_storage=storage,
+            path_mapper=path_mapper,
+        )
 
 
-async def test_additional_callbacks(storage: SessionStorage) -> None:
+async def test_additional_callbacks(
+    storage: SessionStorage,
+    path_mapper: PathMapper,
+) -> None:
     mock_bot = AsyncMock(spec=Bot)
     # quota_info
     call = make_mock_callback(user_id=12345)
@@ -1042,7 +1122,11 @@ async def test_additional_callbacks(storage: SessionStorage) -> None:
         "app.handlers.explorer.render_file_explorer_callback",
         new=AsyncMock(),
     ) as mock_tree:
-        await handle_nav_tree(call_tree, session_storage=storage)
+        await handle_nav_tree(
+            call_tree,
+            session_storage=storage,
+            path_mapper=path_mapper,
+        )
         mock_tree.assert_called_once()
 
     # cancel_execution callback
@@ -1072,7 +1156,12 @@ async def test_additional_callbacks(storage: SessionStorage) -> None:
         "app.handlers.explorer.render_file_explorer_callback",
         new=AsyncMock(),
     ) as mock_tree:
-        await handle_browse_dir_callback(call_dir, cb_dir, session_storage=storage)
+        await handle_browse_dir_callback(
+            call_dir,
+            cb_dir,
+            session_storage=storage,
+            path_mapper=path_mapper,
+        )
         mock_tree.assert_called_once()
 
 
@@ -1240,7 +1329,7 @@ def test_paginate_tree_entries() -> None:
     assert p_large == 3
 
 
-def test_get_tree_keyboard_pagination() -> None:
+def test_get_tree_keyboard_pagination(path_mapper: PathMapper) -> None:
     norm_path = "/home/test/project"
     cur_ws = "/home/test/project"
     dirs = ["subdir1"]
@@ -1328,7 +1417,10 @@ def test_get_file_details_keyboard() -> None:
     assert any("Upload Again" in btn.text for btn in buttons_up)
 
 
-async def test_handle_file_info_callback(tmp_path: Path) -> None:
+async def test_handle_file_info_callback(
+    tmp_path: Path,
+    path_mapper: PathMapper,
+) -> None:
     # 1. Valid file
     test_file = tmp_path / "hello.py"
     test_file.write_text("print('hello world')\n")
@@ -1336,7 +1428,7 @@ async def test_handle_file_info_callback(tmp_path: Path) -> None:
 
     call = make_mock_callback(user_id=12345)
     cb_data = FileInfoCallback(token=token, page=2)
-    await handle_file_info_callback(call, cb_data)
+    await handle_file_info_callback(call, cb_data, path_mapper=path_mapper)
     call.message.edit_text.assert_called_once()
     text = call.message.edit_text.call_args[0][0]
     assert "File Information" in text
@@ -1353,6 +1445,7 @@ async def test_handle_file_info_callback(tmp_path: Path) -> None:
     await handle_file_info_callback(
         call_missing,
         FileInfoCallback(token=missing_token, page=1),
+        path_mapper=path_mapper,
     )
     call_missing.answer.assert_called_once_with(
         "File not found or moved!",
@@ -1367,6 +1460,7 @@ async def test_handle_file_info_callback(tmp_path: Path) -> None:
     await handle_file_info_callback(
         call_empty,
         FileInfoCallback(token=empty_token, page=1),
+        path_mapper=path_mapper,
     )
     call_empty.message.edit_text.assert_called_once()
     assert "File is empty" in call_empty.message.edit_text.call_args[0][0]
@@ -1380,12 +1474,16 @@ async def test_handle_file_info_callback(tmp_path: Path) -> None:
         await handle_file_info_callback(
             call_oversized,
             FileInfoCallback(token=token, page=1),
+            path_mapper=path_mapper,
         )
         oversized_text = call_oversized.message.edit_text.call_args[0][0]
         assert "exceeds Telegram's 50MB" in oversized_text
 
 
-async def test_handle_file_upload_callback(tmp_path: Path) -> None:
+async def test_handle_file_upload_callback(
+    tmp_path: Path,
+    path_mapper: PathMapper,
+) -> None:
     mock_bot = AsyncMock(spec=Bot)
     # 1. Successful document upload
     sample_file = tmp_path / "script.py"
@@ -1394,7 +1492,7 @@ async def test_handle_file_upload_callback(tmp_path: Path) -> None:
 
     call = make_mock_callback(user_id=12345)
     cb_data = FileUploadCallback(token=token, page=1)
-    await handle_file_upload_callback(call, cb_data, mock_bot)
+    await handle_file_upload_callback(call, cb_data, mock_bot, path_mapper=path_mapper)
 
     mock_bot.send_document.assert_called_once()
     assert mock_bot.send_document.call_args.kwargs["chat_id"] == call.message.chat.id
@@ -1411,6 +1509,7 @@ async def test_handle_file_upload_callback(tmp_path: Path) -> None:
         call_img,
         FileUploadCallback(token=img_token, page=1),
         mock_bot,
+        path_mapper=path_mapper,
     )
     mock_bot.send_photo.assert_called_once()
     assert "image.png" in mock_bot.send_photo.call_args.kwargs["caption"]
@@ -1423,6 +1522,7 @@ async def test_handle_file_upload_callback(tmp_path: Path) -> None:
         call_img_fallback,
         FileUploadCallback(token=img_token, page=1),
         mock_bot,
+        path_mapper=path_mapper,
     )
     mock_bot.send_document.assert_called_once()
 
@@ -1433,6 +1533,7 @@ async def test_handle_file_upload_callback(tmp_path: Path) -> None:
         call_missing,
         FileUploadCallback(token=missing_token, page=1),
         mock_bot,
+        path_mapper=path_mapper,
     )
     call_missing.answer.assert_called_once_with(
         "File not found or cannot be read!",
@@ -1448,6 +1549,7 @@ async def test_handle_file_upload_callback(tmp_path: Path) -> None:
         call_zero,
         FileUploadCallback(token=zero_token, page=1),
         mock_bot,
+        path_mapper=path_mapper,
     )
     assert "File is empty (0 bytes)" in call_zero.answer.call_args[0][0]
 
@@ -1458,6 +1560,7 @@ async def test_handle_file_upload_callback(tmp_path: Path) -> None:
             call_huge,
             FileUploadCallback(token=token, page=1),
             mock_bot,
+            path_mapper=path_mapper,
         )
         assert "50MB" in call_huge.answer.call_args[0][0]
 
@@ -1468,6 +1571,7 @@ async def test_handle_file_upload_callback(tmp_path: Path) -> None:
         call_err,
         FileUploadCallback(token=token, page=1),
         mock_bot,
+        path_mapper=path_mapper,
     )
     assert "Failed to upload" in call_err.answer.call_args_list[-1][0][0]
 
@@ -1483,9 +1587,13 @@ async def test_main_startup() -> None:
         await main.main()
         mock_poll.assert_called_once()
         assert "session_storage" in mock_poll.call_args.kwargs
+        assert "path_mapper" in mock_poll.call_args.kwargs
 
 
-async def test_dispatcher_workflow_injection(storage: SessionStorage) -> None:
+async def test_dispatcher_workflow_injection(
+    storage: SessionStorage,
+    path_mapper: PathMapper,
+) -> None:
     test_bot = main.create_bot("123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11")
     now = datetime.now(timezone.utc)
     msg = Message(
@@ -1505,9 +1613,57 @@ async def test_dispatcher_workflow_injection(storage: SessionStorage) -> None:
                 bot=test_bot,
                 update=update,
                 session_storage=storage,
+                path_mapper=path_mapper,
             )
             mock_reply.assert_called_once()
             assert mock_reply.call_args[0][0] == test_bot
             assert mock_reply.call_args[0][1].text == "/start"
+    finally:
+        await test_bot.session.close()
+
+
+async def test_dispatcher_workflow_injection_path_mapper(
+    tmp_path: Path,
+    storage: SessionStorage,
+    path_mapper: PathMapper,
+) -> None:
+    test_bot = main.create_bot("123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11")
+    now = datetime.now(timezone.utc)
+    chat = Chat(id=12345, type="private")
+    user = User(id=12345, is_bot=False, first_name="Test", username="testuser")
+    test_dir = str(tmp_path / "test_dir")
+    token = path_mapper.encode(test_dir)
+    cb_data = WorkspaceCallback(token=token).pack()
+    call = CallbackQuery(
+        id="call_ws",
+        from_user=user,
+        chat_instance="ci",
+        message=Message(
+            message_id=42,
+            date=now,
+            chat=chat,
+            from_user=user,
+            text="picker",
+        ),
+        data=cb_data,
+    )
+    update = Update(update_id=2, callback_query=call)
+    try:
+        with (
+            patch.object(config, "ALLOWED_USER_IDS", [12345]),
+            patch("app.handlers.explorer.reply_safe", new=AsyncMock()),
+            patch.object(
+                test_bot.session,
+                "make_request",
+                new=AsyncMock(return_value=True),
+            ),
+        ):
+            await main.dp.feed_update(
+                bot=test_bot,
+                update=update,
+                session_storage=storage,
+                path_mapper=path_mapper,
+            )
+            assert storage.get_workspace(12345) == os.path.abspath(test_dir)
     finally:
         await test_bot.session.close()

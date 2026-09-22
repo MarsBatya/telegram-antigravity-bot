@@ -614,9 +614,9 @@ def test_cancel_chat_process_windows(storage: SessionStorage) -> None:
     storage.register_process(555, mock_proc)
 
     with (
-        patch("sys.platform", "win32"),
         patch("subprocess.run") as mock_subproc,
         patch("psutil.Process") as mock_psutil_proc,
+        patch("sys.platform", "win32"),
     ):
         child_mock = MagicMock()
         mock_psutil_proc.return_value.children.return_value = [child_mock]

@@ -4,6 +4,7 @@ import pytest
 
 from app.core.model_manager import ModelManager
 from app.core.storage import SessionStorage
+from app.utils.helpers import PathMapper
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -49,6 +50,12 @@ def storage(tmp_path: Path) -> SessionStorage:
     """Provides an isolated SessionStorage instance per test."""
     session_file = str(tmp_path / "sessions.json")
     return SessionStorage(file_path=session_file)
+
+
+@pytest.fixture
+def path_mapper() -> PathMapper:
+    """Provides an isolated PathMapper instance per test."""
+    return PathMapper()
 
 
 @pytest.fixture(autouse=True)
