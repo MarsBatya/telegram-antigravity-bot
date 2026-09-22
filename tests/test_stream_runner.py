@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 from app.core import config
 from app.core.storage import SessionStorage
 from app.runner import stream_runner
-from app.utils.bot_utils import make_progress_bar
+from app.utils.helpers import make_progress_bar
 
 
 def test_ascii_bar() -> None:

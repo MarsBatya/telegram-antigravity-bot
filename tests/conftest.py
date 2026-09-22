@@ -6,6 +6,44 @@ from app.core.model_manager import ModelManager
 from app.core.storage import SessionStorage
 
 
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        "--run-slow",
+        action="store_true",
+        default=False,
+        help="Run tests marked as slow (heavy imports like aiogram).",
+    )
+
+
+# Modules whose top-level imports are expensive (~5s for aiogram).
+# Skipped at *collection* time to avoid the import cost entirely.
+_SLOW_TEST_FILES: list[str] = ["test_main.py"]
+
+
+def pytest_ignore_collect(
+    collection_path: Path,
+    config: pytest.Config,
+) -> bool | None:
+    if config.getoption("--run-slow"):
+        return None
+    if collection_path.name in _SLOW_TEST_FILES:
+        return True
+    return None
+
+
+def pytest_collection_modifyitems(
+    config: pytest.Config,
+    items: list[pytest.Item],
+) -> None:
+    """Skip individual tests marked @pytest.mark.slow in non-ignored files."""
+    if config.getoption("--run-slow"):
+        return
+    skip_slow = pytest.mark.skip(reason="needs --run-slow flag to run")
+    for item in items:
+        if "slow" in item.keywords:
+            item.add_marker(skip_slow)
+
+
 @pytest.fixture
 def storage(tmp_path: Path) -> SessionStorage:
     """Provides an isolated SessionStorage instance per test."""

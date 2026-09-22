@@ -67,15 +67,23 @@ docker compose logs -f
 
 ### Testing
 ```bash
-# Run the full test suite
+# Run fast tests only (default — skips slow/aiogram tests, ~1s)
 uv run pytest
 
+# Run the full test suite including slow tests (~6s)
+uv run pytest --run-slow
+
+# Run only slow tests
+uv run pytest -m slow --run-slow
+
 # Run a specific test file
-uv run pytest tests/test_main.py
+uv run pytest tests/test_main.py --run-slow
 
 # Run a single test case with verbosity
 uv run pytest tests/test_stream_runner.py -k "test_run_antigravity_stream" -v
 ```
+
+Tests marked `@pytest.mark.slow` (or whole modules with `pytestmark = pytest.mark.slow`) are **skipped by default** to avoid the ~5s `aiogram` import overhead. Pass `--run-slow` to include them. When adding new test files that import `aiogram` or other heavy dependencies, add the module to `_SLOW_TEST_FILES` in `tests/conftest.py` and apply the `pytestmark` at the top of the file.
 
 ## Linting & Formatting
 

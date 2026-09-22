@@ -28,10 +28,12 @@ from app.ui.keyboards import (
 )
 from app.utils import formatter
 from app.utils.bot_utils import (
-    format_file_size,
-    path_mapper,
     reply_safe,
     send_long_message,
+)
+from app.utils.helpers import (
+    format_file_size,
+    path_mapper,
 )
 
 router = Router(name="agent")

@@ -173,8 +173,11 @@ Run the bot with `uv`:
 # Sync dependencies
 uv sync
 
-# Run tests
+# Run fast tests only (default — skips slow/aiogram tests)
 uv run pytest
+
+# Run all tests including slow ones
+uv run pytest --run-slow
 
 # Format code
 uv run ruff format --config /home/mars/python/.vscode/ruff.toml .

@@ -35,4 +35,6 @@ testpaths = ["tests"]
 python_files = ["test_*.py", "*_test.py"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-
+markers = [
+    "slow: marks tests as slow (imports aiogram ~5s). Skipped unless --run-slow is passed.",
+]

@@ -3,6 +3,11 @@ import os
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
+# Entire module requires aiogram (~5s import overhead) — skip unless --run-slow.
+pytestmark = pytest.mark.slow
+
 from aiogram import Bot
 from aiogram.types import CallbackQuery, Chat, Message, Update, User
 
@@ -22,7 +27,7 @@ from app.ui.callbacks import (
     WorkspaceCallback,
 )
 from app.ui.keyboards import get_file_details_keyboard, get_tree_keyboard
-from app.utils.bot_utils import (
+from app.utils.helpers import (
     _chunk_text_safely,
     balance_html_chunks,
     format_file_size,
@@ -75,14 +80,16 @@ from app.handlers.settings import (
 )
 from app.runner import agent_runner
 from app.utils.bot_utils import (
+    register_telegram_commands,
+    reply_safe,
+    send_long_message,
+)
+from app.utils.helpers import (
     PathMapper,
     is_authorized,
     make_progress_bar,
     mask_proxy_url,
     path_mapper,
-    register_telegram_commands,
-    reply_safe,
-    send_long_message,
 )
 
 

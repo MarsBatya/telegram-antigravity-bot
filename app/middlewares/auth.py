@@ -5,7 +5,7 @@ from aiogram import BaseMiddleware
 from aiogram.types import CallbackQuery, Message, TelegramObject
 
 from app.core import config
-from app.utils.bot_utils import is_authorized
+from app.utils.helpers import is_authorized
 
 
 class AuthMiddleware(BaseMiddleware):

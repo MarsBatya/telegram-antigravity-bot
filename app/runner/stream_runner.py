@@ -23,7 +23,7 @@ from app.core.storage import (
     calculate_session_tokens as calculate_session_tokens,
 )
 from app.core.model_manager import ModelManager
-from app.utils.bot_utils import make_progress_bar
+from app.utils.helpers import make_progress_bar
 
 SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 DEFAULT_BRAIN_DIR = str(Path.home() / ".gemini" / "antigravity-cli" / "brain")

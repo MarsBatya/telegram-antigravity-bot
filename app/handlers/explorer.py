@@ -22,7 +22,8 @@ from app.ui.keyboards import (
     get_tree_keyboard,
     get_workspace_keyboard,
 )
-from app.utils.bot_utils import format_file_size, path_mapper, reply_safe
+from app.utils.bot_utils import reply_safe
+from app.utils.helpers import format_file_size, path_mapper
 
 router = Router(name="explorer")
 

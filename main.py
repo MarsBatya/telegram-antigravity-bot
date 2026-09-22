@@ -21,10 +21,8 @@ from app.handlers import (
     settings_router,
 )
 from app.middlewares.auth import AuthMiddleware
-from app.utils.bot_utils import (
-    mask_proxy_url,
-    register_telegram_commands,
-)
+from app.utils.bot_utils import register_telegram_commands
+from app.utils.helpers import mask_proxy_url
 
 _bot_token = (
     config.BOT_TOKEN

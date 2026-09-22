@@ -12,10 +12,12 @@ from app.core.storage import SessionStorage
 from app.runner import agent_runner
 from app.ui.keyboards import get_main_reply_keyboard
 from app.utils.bot_utils import (
-    make_progress_bar,
-    mask_proxy_url,
     reply_safe,
     send_long_message,
+)
+from app.utils.helpers import (
+    make_progress_bar,
+    mask_proxy_url,
 )
 
 router = Router(name="commands")
