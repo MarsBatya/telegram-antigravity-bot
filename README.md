@@ -222,11 +222,23 @@ sudo journalctl -u telegram-antigravity-bot.service -f
 
 ## Security
 
+> [!CAUTION]
+> **Unrestricted Agent Permissions — Read Before Running**
+>
+> This bot runs the Antigravity CLI with `--dangerously-skip-permissions`, which **auto-approves every tool call** without prompting — including shell commands, file writes, file deletions, and network requests. This is required because `agy` runs in headless mode (no TTY) where interactive permission prompts are impossible; without this flag, all write operations would be silently denied and the agent would be unable to do any useful work.
+>
+> **What this means in practice:** if you ask the agent to "clean up old files" or "fix my config", it can and will modify or delete files on the host filesystem without asking for confirmation. **Do not trust the bot with access to sensitive system files, credentials, or data you cannot afford to lose.**
+>
+> **How to stay safe:**
+> - 🐳 **Use Docker** (strongly recommended) — the container isolates the agent's filesystem so it cannot touch your host files.
+> - 📁 **Point workspaces to dedicated project directories only** — never set `DEFAULT_WORKSPACE` to `/`, `~`, or paths containing personal files, SSH keys, or system configs.
+> - 🔒 **Keep `ALLOWED_USER_IDS` tight** — only your own Telegram account should have access; anyone with access can execute arbitrary commands on the host.
+> - 💾 **Back up important data** — treat the agent like a junior dev with root access: helpful but capable of mistakes.
+
 - **Strict User Authorization**: The bot rejects messages from any user not listed in `ALLOWED_USER_IDS` and logs unauthorized attempts. Leaving this empty on first run allows you to safely discover your Telegram ID via `/start`.
 - **Private Chat Only**: The bot operates strictly in private 1-on-1 chats and rejects group/channel messages to prevent group members from triggering or inspecting server execution.
 - **Bot Token**: The bot token is read from `.env`, which is strictly excluded from version control.
 - **Docker vs. Host PC Safety**:
-  - The agent runs with `--dangerously-skip-permissions` to enable non-interactive tool calls.
   - When running unattended on a VPS or remote machine, **Docker Compose is strongly recommended** for filesystem containment.
   - The Docker container runs as `root` intentionally to give the `agy` CLI sub-processes full flexibility to manage developer tooling and dependencies without permission barriers.
 
