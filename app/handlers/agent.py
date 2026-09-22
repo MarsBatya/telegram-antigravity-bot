@@ -3,12 +3,12 @@ from collections.abc import Callable
 import contextlib
 import html
 import inspect
+import logging
 import os
 import re
 import shutil
 import tempfile
 import time
-import traceback
 from typing import Any
 
 from aiogram import Bot, F, Router
@@ -36,6 +36,7 @@ from app.utils.helpers import (
     format_file_size,
 )
 
+logger = logging.getLogger(__name__)
 router = Router(name="agent")
 _active_background_tasks: set[asyncio.Task[Any]] = set()
 
@@ -514,6 +515,70 @@ def _build_runner_kwargs(
     return call_kwargs
 
 
+class AsyncProgressUpdater:
+    """Manages rate-limited sequential edits to the Telegram progress message,
+    preventing concurrent edit collisions and flood limits.
+    """
+
+    def __init__(
+        self,
+        bot: Bot,
+        chat_id: int,
+        message_id: int,
+        reply_markup: InlineKeyboardMarkup,
+        loop: asyncio.AbstractEventLoop,
+    ) -> None:
+        self.bot = bot
+        self.chat_id = chat_id
+        self.message_id = message_id
+        self.reply_markup = reply_markup
+        self.loop = loop
+        self._latest_text: str | None = None
+        self._current_text: str | None = None
+        self._is_running = False
+        self._stopped = False
+        self._task: asyncio.Task[None] | None = None
+
+    def post_update(self, text: str) -> None:
+        if self._stopped:
+            return
+        self._latest_text = text
+        self.loop.call_soon_threadsafe(self._ensure_worker)
+
+    def _ensure_worker(self) -> None:
+        if self._stopped or self._is_running:
+            return
+        self._task = asyncio.create_task(self._update_loop())
+
+    async def _update_loop(self) -> None:
+        if self._is_running or self._stopped:
+            return
+        self._is_running = True
+        try:
+            while not self._stopped and self._latest_text != self._current_text:
+                target = self._latest_text
+                if not target or target == self._current_text:
+                    break
+                await _send_progress_edit(
+                    self.bot,
+                    self.chat_id,
+                    self.message_id,
+                    target,
+                    self.reply_markup,
+                )
+                self._current_text = target
+                await asyncio.sleep(0.5)
+        finally:
+            self._is_running = False
+            if not self._stopped and self._latest_text != self._current_text:
+                self._ensure_worker()
+
+    def stop(self) -> None:
+        self._stopped = True
+        if self._task and not self._task.done():
+            self._task.cancel()
+
+
 async def _send_progress_edit(
     bot: Bot,
     chat_id: int,
@@ -531,7 +596,17 @@ async def _send_progress_edit(
             parse_mode="HTML",
             reply_markup=reply_markup,
         )
-    except Exception:
+    except Exception as e:
+        err_str = str(e).lower()
+        if (
+            "message is not modified" in err_str
+            or "message to edit not found" in err_str
+        ):
+            return
+        if "retry after" in err_str:
+            logger.warning("Telegram flood limit on chat %d: %s", chat_id, e)
+            return
+        logger.debug("HTML edit failed on chat %d (%s), trying plain text", chat_id, e)
         with contextlib.suppress(Exception):
             await bot.edit_message_text(
                 text=re.sub(r"<[^>]+>", "", text),
@@ -542,7 +617,7 @@ async def _send_progress_edit(
             )
 
 
-async def process_custom_agent_prompt(
+async def process_custom_agent_prompt(  # noqa: C901
     bot: Bot,
     chat_id: int,
     prompt: str,
@@ -563,29 +638,43 @@ async def process_custom_agent_prompt(
             reply_to_message_id=reply_to_message_id,
         )
     except Exception as e:
-        print(f"[WARNING] Could not send initial status message: {e}")
+        logger.warning(
+            "Could not send initial status message in chat %d: %s",
+            chat_id,
+            e,
+        )
 
     user_ws = session_storage.get_workspace(chat_id)
     cur_model = session_storage.get_setting(chat_id, "model", config.DEFAULT_MODEL)
     cur_effort = session_storage.get_setting(chat_id, "effort", config.DEFAULT_EFFORT)
+    prompt_preview = prompt[:100].replace("\n", " ")
+    logger.info(
+        "Agent prompt received [chat %s]: model=%s, effort=%s, ws=%s, prompt=%s...",
+        chat_id,
+        cur_model,
+        cur_effort,
+        user_ws,
+        prompt_preview,
+    )
 
     async def _worker() -> None:
         loop = asyncio.get_running_loop()
         is_finished = False
-
-        def sync_progress_callback(text: str) -> None:
-            if not status_msg or is_finished:
-                return
-            asyncio.run_coroutine_threadsafe(
-                _send_progress_edit(
-                    bot,
-                    chat_id,
-                    status_msg.message_id,
-                    text,
-                    cancel_markup,
-                ),
+        updater = (
+            AsyncProgressUpdater(
+                bot,
+                chat_id,
+                status_msg.message_id,
+                cancel_markup,
                 loop,
             )
+            if status_msg
+            else None
+        )
+
+        def sync_progress_callback(text: str) -> None:
+            if updater and not is_finished:
+                updater.post_update(text)
 
         try:
             call_kwargs = _build_runner_kwargs(
@@ -603,6 +692,9 @@ async def process_custom_agent_prompt(
                 )
 
             is_finished = True
+            if updater:
+                updater.stop()
+
             if status_msg:
                 with contextlib.suppress(Exception):
                     await bot.delete_message(
@@ -624,7 +716,13 @@ async def process_custom_agent_prompt(
                 await _send_generated_files(bot, chat_id, generated_files)
 
         except Exception as e:
-            traceback.print_exc()
+            logger.exception("Error executing agent prompt in chat %d: %s", chat_id, e)
+            if status_msg:
+                with contextlib.suppress(Exception):
+                    await bot.delete_message(
+                        chat_id=chat_id,
+                        message_id=status_msg.message_id,
+                    )
             err_card = formatter.format_error_card(
                 str(e),
                 suggestion=(
@@ -638,6 +736,9 @@ async def process_custom_agent_prompt(
                 parse_mode="HTML",
                 reply_markup=get_main_reply_keyboard(),
             )
+        finally:
+            if updater:
+                updater.stop()
 
     task = asyncio.create_task(_worker())
     _active_background_tasks.add(task)

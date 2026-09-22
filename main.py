@@ -1,6 +1,7 @@
 """Antigravity AI Agent Telegram Bot - Main Entry Point."""
 
 import asyncio
+import logging
 import sys
 from typing import Any
 
@@ -11,6 +12,7 @@ from aiogram.enums import ParseMode
 from aiogram.utils.callback_answer import CallbackAnswerMiddleware
 
 from app.core import config
+from app.core.logging_config import setup_logging
 from app.core.model_manager import ModelManager
 from app.core.storage import SessionStorage
 from app.handlers import (
@@ -23,6 +25,9 @@ from app.handlers import (
 from app.middlewares.auth import AuthMiddleware
 from app.utils.bot_utils import register_telegram_commands
 from app.utils.helpers import PathMapper, mask_proxy_url
+
+logger = logging.getLogger("main")
+setup_logging()
 
 _bot_token = (
     config.BOT_TOKEN
@@ -108,7 +113,7 @@ async def on_shutdown(
     **kwargs: Any,
 ) -> None:
     """Shuts down active CLI processes and closes bot session on app exit."""
-    print("🛑 Shutting down bot, terminating active CLI processes...")
+    logger.info("🛑 Shutting down bot, terminating active CLI processes...")
     target_storage = (
         session_storage
         or (router.get("session_storage") if router is not None else None)
@@ -127,7 +132,7 @@ dp.shutdown.register(on_shutdown)
 async def main() -> None:
     """Launches the Antigravity Telegram bot long-polling process."""
     if not config.validate_config():
-        print("[ERROR] Please configure .env before starting the bot.")
+        logger.error("Please configure .env before starting the bot.")
         sys.exit(1)
 
     storage = SessionStorage()
@@ -142,21 +147,26 @@ async def main() -> None:
 
     await register_telegram_commands(bot)
 
-    print("🚀 Starting Antigravity AI Agent Bot (aiogram v3 Modular Architecture)...")
-    print(f"📂 Default Workspace Dir: {config.DEFAULT_WORKSPACE}")
-    print(f"🔒 Allowed User IDs: {config.ALLOWED_USER_IDS}")
+    logger.info(
+        "🚀 Starting Antigravity AI Agent Bot (aiogram v3 Modular Architecture)...",
+    )
+    logger.info("📂 Default Workspace Dir: %s", config.DEFAULT_WORKSPACE)
+    logger.info("🔒 Allowed User IDs: %s", config.ALLOWED_USER_IDS)
     session = getattr(bot, "session", None)
     session_proxy = getattr(session, "proxy", None) if session is not None else None
     if session_proxy:
-        print(f"🌐 Telegram Connection Proxy: {mask_proxy_url(str(session_proxy))}")
+        logger.info(
+            "🌐 Telegram Connection Proxy: %s",
+            mask_proxy_url(str(session_proxy)),
+        )
 
     try:
         await bot.delete_webhook(drop_pending_updates=True)
-        print("✅ Webhook status cleared.")
+        logger.info("✅ Webhook status cleared.")
     except Exception as e:
-        print(f"⚠️ Remove webhook notice: {e}")
+        logger.warning("Remove webhook notice: %s", e)
 
-    print("🤖 Bot is active & polling for messages...")
+    logger.info("🤖 Bot is active & polling for messages...")
     await dp.start_polling(
         bot,
         allowed_updates=dp.resolve_used_update_types(),

@@ -1098,3 +1098,157 @@ def test_persona_prompt_injected_only_on_first_turn(
 
                 assert "STYLE GUIDELINES" in turn3_prompt
                 assert "Third prompt in new session" in turn3_prompt
+
+
+def test_run_antigravity_stream_real_turn1_replay(
+    tmp_path: Path,
+    storage: SessionStorage,
+) -> None:
+    """Tests replay of real agy stream output from downloads/turn1.jsonl."""
+    turn1_path = Path(config.PROJECT_ROOT) / "downloads" / "turn1.jsonl"
+    if not turn1_path.exists():
+        return
+
+    with open(turn1_path, "r", encoding="utf-8") as f:
+        stream_lines = [line.strip() for line in f if line.strip()]
+
+    agy_mock = str(tmp_path / "agy")
+    with open(agy_mock, "w") as f:
+        f.write("#!/bin/sh\nexit 0\n")
+    os.chmod(agy_mock, 0o755)  # noqa: S103
+
+    mock_process = MagicMock()
+    mock_process.stdout.readline.side_effect = [
+        line + "\n" for line in stream_lines
+    ] + [""]
+    mock_process.wait.return_value = 0
+    mock_process.returncode = 0
+
+    progress_messages: list[str] = []
+
+    def on_progress(text: str) -> None:
+        progress_messages.append(text)
+
+    with patch.object(config, "AGY_PATH", agy_mock):
+        with patch("subprocess.Popen", return_value=mock_process):
+            with patch.object(storage, "save"):
+                resp, usage, files = stream_runner.run_antigravity_stream(
+                    "Show 5 random files from /tmp",
+                    445566,
+                    workspace_dir=str(tmp_path),
+                    progress_callback=on_progress,
+                    storage=storage,
+                )
+
+                assert "Here are 5 random files from `/tmp`:" in resp
+                assert usage.get("total_tokens") == 31650
+                assert "steps" in usage
+                assert len(usage["steps"]) == 1
+                assert "find /tmp" in usage["steps"][0]
+                expected_conv = "a2d7cc89-50bd-4da8-8be3-df9bcd96b6ff"
+                assert storage.get_active_session(445566) == expected_conv
+                assert len(progress_messages) >= 2
+
+
+def test_run_antigravity_stream_result_error(
+    tmp_path: Path,
+    storage: SessionStorage,
+) -> None:
+    """Verifies that agy result status=ERROR is cleanly caught and reported."""
+    agy_mock = str(tmp_path / "agy")
+    with open(agy_mock, "w") as f:
+        f.write("#!/bin/sh\nexit 1\n")
+    os.chmod(agy_mock, 0o755)  # noqa: S103
+
+    events = [
+        json.dumps(
+            {
+                "event": "result",
+                "result": {
+                    "status": "ERROR",
+                    "response": "",
+                    "error": 'invalid model selection (--model "unknown")',
+                },
+            },
+        ),
+    ]
+
+    mock_process = MagicMock()
+    mock_process.stdout.readline.side_effect = [e + "\n" for e in events] + [""]
+    mock_process.wait.return_value = 1
+    mock_process.returncode = 1
+
+    with patch.object(config, "AGY_PATH", agy_mock):
+        with patch("subprocess.Popen", return_value=mock_process):
+            resp, usage, files = stream_runner.run_antigravity_stream(
+                "Run test",
+                881122,
+                workspace_dir=str(tmp_path),
+                storage=storage,
+            )
+
+            assert "❌ <b>Antigravity Error:</b>" in resp
+            assert "invalid model selection" in resp
+
+
+def test_run_antigravity_stream_nonzero_exit_with_raw_stderr(
+    tmp_path: Path,
+    storage: SessionStorage,
+) -> None:
+    """Verifies that non-zero exit with non-JSON output displays CLI stderr."""
+    agy_mock = str(tmp_path / "agy")
+    with open(agy_mock, "w") as f:
+        f.write("#!/bin/sh\nexit 2\n")
+    os.chmod(agy_mock, 0o755)  # noqa: S103
+
+    mock_process = MagicMock()
+    mock_process.stdout.readline.side_effect = [
+        "fatal: failed to authenticate with Google OAuth\n",
+        "",
+    ]
+    mock_process.wait.return_value = 2
+    mock_process.returncode = 2
+
+    with patch.object(config, "AGY_PATH", agy_mock):
+        with patch("subprocess.Popen", return_value=mock_process):
+            resp, usage, files = stream_runner.run_antigravity_stream(
+                "Run test",
+                992233,
+                workspace_dir=str(tmp_path),
+                storage=storage,
+            )
+
+            assert "❌ <b>Antigravity CLI Failed (Exit Code 2):</b>" in resp
+            assert "failed to authenticate" in resp
+
+
+def test_format_progress_card_with_draft_preview() -> None:
+    """Verifies that draft preview is rendered in blockquote in progress card."""
+    card = stream_runner.format_progress_card(
+        elapsed_seconds=4,
+        completed_steps=["Ran <code>find /tmp</code>"],
+        active_activity="Drafting response...",
+        draft_preview="Here are the files you requested:\n- file1.txt",
+    )
+    assert "<blockquote expandable>" in card
+    assert "Here are the files you requested:" in card
+    assert "✍️ <b>Drafting response:</b>" in card
+
+
+def test_setup_logging_creates_file(tmp_path: Path) -> None:
+    """Verifies that setup_logging configures file handler and writes logs."""
+    from app.core.logging_config import setup_logging
+    import logging
+
+    test_log = tmp_path / "test_bot.log"
+    setup_logging(log_file=test_log)
+
+    logger = logging.getLogger("test_logger")
+    logger.info("Test log line for verification")
+
+    for h in logging.getLogger().handlers:
+        h.flush()
+
+    assert test_log.exists()
+    content = test_log.read_text(encoding="utf-8")
+    assert "Test log line for verification" in content

@@ -1,8 +1,11 @@
 import base64
+from collections import deque
+from collections.abc import Callable
 import contextlib
 from datetime import datetime, timezone
 import html
 import json
+import logging
 import os
 from pathlib import Path
 import re
@@ -14,7 +17,6 @@ import time
 from typing import Any
 import urllib.error
 import urllib.request
-from collections.abc import Callable
 
 from app.core import config
 from app.core.storage import (
@@ -24,6 +26,8 @@ from app.core.storage import (
 )
 from app.core.model_manager import ModelManager
 from app.utils.helpers import make_progress_bar
+
+logger = logging.getLogger(__name__)
 
 SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 DEFAULT_BRAIN_DIR = str(Path.home() / ".gemini" / "antigravity-cli" / "brain")
@@ -167,9 +171,10 @@ def fetch_bot_logs(lines_count: int = 30) -> str:
                 text=True,
                 timeout=5,
             )
-            if res.stdout:
+            if res.stdout and "-- No entries --" not in res.stdout:
                 return res.stdout
-            return "📜 No recent logs."
+            if res.stdout == "":
+                return "📜 No recent logs."
         except Exception as e:
             if sys.platform != "win32":
                 return f"❌ Failed to fetch logs: {e}"
@@ -607,17 +612,34 @@ def format_tool_step_description(
     return f"Running {clean_name}..."
 
 
-def format_progress_card(
+def format_progress_card(  # noqa: C901
     elapsed_seconds: int,
     completed_steps: list[str],
     active_activity: str,
     spinner_frame: str = "⠋",
+    draft_preview: str = "",
 ) -> str:
     """Formats the real-time Telegram status card showing elapsed time
     and progress steps. Strictly bounds output length to stay under Telegram limits.
     """
+    clean_draft = draft_preview.strip()
+    preview_block = ""
+    if clean_draft:
+        preview_text = (
+            clean_draft
+            if len(clean_draft) <= 220
+            else clean_draft[:200].rstrip() + "..."
+        )
+        preview_escaped = html.escape(preview_text)
+        preview_block = f"<blockquote expandable>{preview_escaped}</blockquote>"
+
     if not completed_steps:
         act_lower = active_activity.lower().strip()
+        if preview_block:
+            return (
+                f"✍️ <b>Drafting response...</b> <i>({elapsed_seconds}s)</i>\n\n"
+                f"{preview_block}"
+            )
         if act_lower.startswith("thinking"):
             return f"🧠 <b>Thinking...</b> <i>({elapsed_seconds}s)</i>"
         if act_lower.startswith("drafting"):
@@ -644,7 +666,9 @@ def format_progress_card(
     steps_block = "\n".join(rendered_steps)
 
     act_lower = active_activity.lower().strip()
-    if act_lower.startswith("drafting"):
+    if preview_block:
+        active_line = f"✍️ <b>Drafting response:</b>\n{preview_block}"
+    elif act_lower.startswith("drafting"):
         active_line = "✍️ <i>Drafting response...</i>"
     elif act_lower.startswith("thinking"):
         active_line = f"{spinner_frame} <i>Thinking next step...</i>"
@@ -659,7 +683,7 @@ def format_progress_card(
         active_line = f"{spinner_frame} <i>{disp_act}</i>"
 
     card = (
-        f"{header}\n\n{steps_block}\n{active_line}"
+        f"{header}\n\n{steps_block}\n\n{active_line}"
         if active_line
         else f"{header}\n\n{steps_block}"
     )
@@ -690,6 +714,7 @@ class StreamProgressTracker:
         self.start_time = time.time()
         self.completed_steps: list[str] = []
         self.active_activity: str = "Thinking..."
+        self.draft_preview: str = ""
         self.spinner_idx = 0
         self.last_update_time = 0.0
         self.last_card_text = ""
@@ -704,25 +729,33 @@ class StreamProgressTracker:
                 daemon=True,
             )
             self.ticker_thread.start()
+            self.flush(force=True)
 
     def _ticker_loop(self) -> None:
         while not self.stop_event.wait(timeout=self.throttle_interval):
             self.flush(force=True)
 
-    def set_activity(self, activity: str) -> None:
+    def set_activity(self, activity: str, force: bool = False) -> None:
         with self.lock:
             self.active_activity = activity
+        self.flush(force=force)
+
+    def append_draft(self, delta: str) -> None:
+        with self.lock:
+            self.draft_preview += delta
+            self.active_activity = "Drafting response..."
         self.flush()
 
     def add_completed_step(
         self,
         step_desc: str,
-        next_activity: str = "Thinking...",
+        next_activity: str = "Thinking next step...",
+        force: bool = False,
     ) -> None:
         with self.lock:
             self.completed_steps.append(step_desc)
             self.active_activity = next_activity
-        self.flush()
+        self.flush(force=force)
 
     def flush(self, force: bool = False) -> None:
         if self.progress_callback is None:
@@ -744,6 +777,7 @@ class StreamProgressTracker:
                 completed_steps=self.completed_steps,
                 active_activity=self.active_activity,
                 spinner_frame=spinner,
+                draft_preview=self.draft_preview,
             )
 
             if card == self.last_card_text:
@@ -839,6 +873,16 @@ def run_antigravity_stream(  # noqa: C901
         try:
             is_win = sys.platform == "win32"
             use_shell = is_win and agy_exec.lower().endswith((".cmd", ".bat"))
+            logger.info(
+                "Starting agy stream execution: chat_id=%s, model=%s, effort=%s, "
+                "mode=%s, cwd=%s, conv=%s",
+                chat_id,
+                model,
+                effort,
+                mode,
+                cwd,
+                conv_target,
+            )
             process = subprocess.Popen(  # noqa: S603
                 cmd,
                 cwd=cwd,
@@ -852,11 +896,13 @@ def run_antigravity_stream(  # noqa: C901
                 shell=use_shell,
             )
             target_storage.register_process(chat_id, process)
+            logger.info("Spawned agy process PID=%d for chat %s", process.pid, chat_id)
 
             final_response = ""
             turn_usage = {}
             generated_files = []
             step_counter = 0
+            raw_output_buffer: deque[str] = deque(maxlen=40)
 
             start_time = time.time()
             max_duration = 600  # 10 minutes timeout watchdog
@@ -865,10 +911,16 @@ def run_antigravity_stream(  # noqa: C901
                 progress_callback=progress_callback,
                 throttle_interval=1.2,
             )
+            tracker.set_activity("Engine launched · Initializing...", force=True)
 
             try:
                 for line in iter(process.stdout.readline, ""):
                     if time.time() - start_time > max_duration:
+                        logger.warning(
+                            "agy process execution timed out after %ds [chat %s]",
+                            max_duration,
+                            chat_id,
+                        )
                         _terminate_process_and_group(process)
                         return (
                             "execution cancelled: timed out after 10 minutes 😅",
@@ -880,109 +932,251 @@ def run_antigravity_stream(  # noqa: C901
                     if not line:
                         continue
 
-                    with contextlib.suppress(json.JSONDecodeError):
+                    try:
                         data = json.loads(line)
-                        event_type = data.get("event")
+                    except json.JSONDecodeError:
+                        raw_output_buffer.append(line)
+                        logger.warning(
+                            "CLI raw non-JSON output [chat %s]: %s",
+                            chat_id,
+                            line,
+                        )
+                        continue
 
-                        if event_type == "init":
-                            conv_id = data.get("conversation_id")
-                            if conv_id:
-                                target_storage.set_active_session(chat_id, conv_id)
+                    event_type = data.get("event")
 
-                        elif event_type == "step_update":
-                            step = data.get("step_update", {})
-                            step_type = step.get("step_type", "")
-                            step_counter += 1
+                    if event_type == "init":
+                        conv_id = data.get("conversation_id")
+                        tools = data.get("init", {}).get("tools", [])
+                        logger.info(
+                            "agy init event [chat %s]: conv_id=%s, tools=%d",
+                            chat_id,
+                            conv_id,
+                            len(tools),
+                        )
+                        if conv_id:
+                            target_storage.set_active_session(chat_id, conv_id)
+                        tracker.set_activity(
+                            "Connected · Analyzing request...",
+                            force=True,
+                        )
 
-                            if step.get("usage"):
-                                turn_usage = step.get("usage")
+                    elif event_type == "step_update":
+                        step = data.get("step_update", {})
+                        step_type = step.get("step_type", "")
+                        step_counter += 1
+                        state = step.get("state", "")
+                        dur = step.get("duration_seconds")
+                        usage = step.get("usage")
 
-                            if step_type == "agent_response":
-                                delta = (
-                                    step.get("text_delta")
-                                    or step.get("response")
-                                    or step.get("text")
-                                )
-                                if delta:
-                                    final_response += delta
-                                    tracker.set_activity("Drafting response...")
-                                elif step.get("state") == "DONE":
-                                    tracker.set_activity("Thinking...")
+                        if usage:
+                            turn_usage = usage
 
-                            tool_name = (
-                                step.get("tool_name")
-                                or (step.get("tool_info") or {}).get("name")
-                                or (step.get("tool_call") or {}).get("name")
-                                or (step.get("tool") or {}).get("name")
-                                or ""
+                        logger.debug(
+                            "agy step_update [chat %s]: type=%s, state=%s, dur=%s",
+                            chat_id,
+                            step_type,
+                            state,
+                            dur,
+                        )
+
+                        if step_type == "agent_response":
+                            delta = (
+                                step.get("text_delta")
+                                or step.get("response")
+                                or step.get("text")
                             )
-                            tool_info = step.get("tool_info") or {}
-                            params = (
-                                tool_info.get("parameters")
-                                or (step.get("tool_call") or {}).get("args")
-                                or (step.get("tool") or {}).get("args")
-                                or {}
-                            )
-                            state = step.get("state", "")
-                            dur = step.get("duration_seconds")
-
-                            if tool_name:
-                                if tool_name in [
-                                    "write_to_file",
-                                    "generate_image",
-                                    "multi_replace_file_content",
-                                ]:
-                                    target = params.get("TargetFile") or params.get(
-                                        "ImageName",
+                            if delta:
+                                if not final_response:
+                                    logger.info(
+                                        "First response text delta received [chat %s]",
+                                        chat_id,
                                     )
-                                    if (
-                                        target
-                                        and os.path.exists(target)
-                                        and target not in generated_files
-                                    ):
-                                        generated_files.append(target)
-
-                                if state == "ACTIVE":
-                                    desc = format_tool_step_description(
-                                        tool_name,
-                                        params,
-                                        done=False,
+                                final_response += delta
+                                tracker.append_draft(delta)
+                            elif state == "DONE":
+                                thk = (usage or {}).get("thinking_tokens", 0)
+                                if thk > 0:
+                                    logger.info(
+                                        "Reasoning step done [chat %s]: "
+                                        "thinking_tokens=%d, dur=%.2fs",
+                                        chat_id,
+                                        thk,
+                                        dur or 0.0,
                                     )
-                                    tracker.set_activity(desc)
-                                elif state == "DONE":
-                                    desc = format_tool_step_description(
-                                        tool_name,
-                                        params,
-                                        done=True,
-                                        duration_seconds=dur,
-                                    )
-                                    tracker.add_completed_step(
-                                        desc,
-                                        next_activity="Thinking...",
+                                    tracker.set_activity(
+                                        f"Reasoned next action ({thk} tokens)...",
                                     )
                                 else:
-                                    desc = format_tool_step_description(
-                                        tool_name,
-                                        params,
-                                        done=False,
-                                    )
-                                    tracker.set_activity(desc)
+                                    tracker.set_activity("Thinking next step...")
 
-                        elif event_type == "result":
-                            res = data.get("result", {})
-                            res_text = res.get("response", "")
-                            if res_text:
-                                final_response = res_text
-                            if res.get("usage"):
-                                turn_usage = res.get("usage")
-                            tracker.set_activity("Done")
+                        tool_name = (
+                            step.get("tool_name")
+                            or (step.get("tool_info") or {}).get("name")
+                            or (step.get("tool_call") or {}).get("name")
+                            or (step.get("tool") or {}).get("name")
+                            or ""
+                        )
+                        tool_info = step.get("tool_info") or {}
+                        params = (
+                            tool_info.get("parameters")
+                            or (step.get("tool_call") or {}).get("args")
+                            or (step.get("tool") or {}).get("args")
+                            or {}
+                        )
+
+                        if tool_name:
+                            if tool_name in [
+                                "write_to_file",
+                                "generate_image",
+                                "multi_replace_file_content",
+                            ]:
+                                target = params.get("TargetFile") or params.get(
+                                    "ImageName",
+                                )
+                                if (
+                                    target
+                                    and os.path.exists(target)
+                                    and target not in generated_files
+                                ):
+                                    generated_files.append(target)
+
+                            if state == "ACTIVE":
+                                logger.info(
+                                    "Tool ACTIVE [chat %s]: %s",
+                                    chat_id,
+                                    tool_name,
+                                )
+                                desc = format_tool_step_description(
+                                    tool_name,
+                                    params,
+                                    done=False,
+                                )
+                                tracker.set_activity(desc)
+                            elif state == "DONE":
+                                logger.info(
+                                    "Tool DONE [chat %s]: %s in %.3fs",
+                                    chat_id,
+                                    tool_name,
+                                    dur or 0.0,
+                                )
+                                desc = format_tool_step_description(
+                                    tool_name,
+                                    params,
+                                    done=True,
+                                    duration_seconds=dur,
+                                )
+                                tracker.add_completed_step(
+                                    desc,
+                                    next_activity="Thinking next step...",
+                                )
+                            elif state == "ERROR" or step.get("error"):
+                                err_text = (
+                                    step.get("error")
+                                    or (
+                                        tool_info.get("error")
+                                        if isinstance(tool_info, dict)
+                                        else ""
+                                    )
+                                    or "Execution failed"
+                                )
+                                logger.error(
+                                    "Tool ERROR [chat %s]: %s: %s",
+                                    chat_id,
+                                    tool_name,
+                                    err_text,
+                                )
+                                desc = (
+                                    f"❌ {html.escape(tool_name)}: "
+                                    f"{html.escape(str(err_text))}"
+                                )
+                                tracker.add_completed_step(
+                                    desc,
+                                    next_activity="Thinking next step...",
+                                )
+                            else:
+                                desc = format_tool_step_description(
+                                    tool_name,
+                                    params,
+                                    done=False,
+                                )
+                                tracker.set_activity(desc)
+
+                    elif event_type == "result":
+                        res = data.get("result", {})
+                        status = res.get("status", "")
+                        res_err = res.get("error", "")
+                        res_text = res.get("response", "")
+                        logger.info(
+                            "Stream result [chat %s]: status=%s, turns=%s, "
+                            "dur=%.2fs, usage=%s",
+                            chat_id,
+                            status,
+                            res.get("num_turns"),
+                            res.get("duration_seconds", 0.0),
+                            res.get("usage"),
+                        )
+                        if status == "ERROR" or res_err:
+                            logger.error(
+                                "CLI result reported error [chat %s]: %s",
+                                chat_id,
+                                res_err,
+                            )
+                            err_desc = html.escape(res_err or "Execution failed")
+                            final_response = (
+                                f"❌ <b>Antigravity Error:</b>\n<code>{err_desc}</code>"
+                            )
+                        elif res_text:
+                            final_response = res_text
+                        if res.get("usage"):
+                            turn_usage = res.get("usage")
+                        tracker.set_activity("Done", force=True)
             finally:
                 tracker.stop()
-                if process.stdout and not process.stdout.closed:
-                    process.stdout.close()
+                if process.stdout and not getattr(process.stdout, "closed", True):
+                    with contextlib.suppress(Exception):
+                        process.stdout.close()
+                wait_res = None
                 with contextlib.suppress(Exception):
-                    process.wait()
+                    wait_res = process.wait()
                 target_storage.unregister_process(chat_id)
+
+            ret_code = (
+                process.returncode
+                if isinstance(process.returncode, int)
+                else (wait_res if isinstance(wait_res, int) else 0)
+            )
+            if ret_code != 0:
+                logger.error(
+                    "agy process PID %s exited with code %d [chat %s]",
+                    getattr(process, "pid", "unknown"),
+                    ret_code,
+                    chat_id,
+                )
+                if not final_response or not final_response.strip().startswith("❌"):
+                    err_details = "\n".join(raw_output_buffer).strip()
+                    if err_details:
+                        final_response = (
+                            f"❌ <b>Antigravity CLI Failed (Exit Code {ret_code}):"
+                            f"</b>\n<pre><code>{html.escape(err_details[:1500])}"
+                            f"</code></pre>"
+                        )
+                    else:
+                        final_response = (
+                            f"❌ <b>Antigravity CLI Failed (Exit Code {ret_code})</b>"
+                        )
+            elif not final_response or not final_response.strip():
+                if tracker.completed_steps:
+                    final_response = "✅ Task completed (no output text produced)."
+                else:
+                    err_details = "\n".join(raw_output_buffer).strip()
+                    if err_details:
+                        final_response = (
+                            f"⚠️ <b>Execution completed with warnings:</b>\n"
+                            f"<pre><code>{html.escape(err_details[:1000])}</code></pre>"
+                        )
+                    else:
+                        final_response = "sure, is there anything else I can help with?"
 
             if not target_storage.get_active_session(chat_id):
                 target_storage.set_active_session(chat_id, True)
@@ -996,13 +1190,20 @@ def run_antigravity_stream(  # noqa: C901
             if tracker.completed_steps:
                 turn_usage["steps"] = list(tracker.completed_steps)
 
-            resp_text = (
-                final_response.strip()
-                if final_response and final_response.strip()
-                else "sure, is there anything else I can help with?"
+            resp_text = final_response.strip()
+            logger.info(
+                "Completed agy run [chat %s]: resp_len=%d, steps=%d",
+                chat_id,
+                len(resp_text),
+                len(tracker.completed_steps),
             )
             return resp_text, turn_usage, generated_files
 
         except Exception as e:
             target_storage.unregister_process(chat_id)
+            logger.exception(
+                "Failed to run Antigravity stream [chat %s]: %s",
+                chat_id,
+                e,
+            )
             return f"❌ <b>Failed to run Antigravity:</b> {str(e)}", {}, []
